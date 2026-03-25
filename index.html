@@ -714,13 +714,19 @@
       const llmProviderName = apiConfig.provider === 'openai' ? 'GPT' : 'Claude';
       const elapsed = es.llmStartTime ? Math.round((Date.now() - es.llmStartTime) / 1000) : 0;
       const elapsedStr = elapsed > 0 ? `${elapsed}s elapsed` : '';
-      // Progress ring: fills over ~30s as an estimate
+      const llmStep = es.llmStep || 1;
+      const llmTotalSteps = es.llmTotalSteps || 1;
+      const stepLabel = llmTotalSteps > 1 ? ` (Step ${llmStep}/${llmTotalSteps})` : '';
+      const stepDesc = llmTotalSteps > 1
+        ? (llmStep === 1 ? 'Extracting raw shareholder rows from OCR text' : 'Merging shareholders & calculating ownership percentages')
+        : 'Extracting structured fields from OCR text';
+      // Progress ring: fills over ~60s per step as an estimate
       const pctFill = llmActive ? Math.min(95, Math.round((elapsed / 60) * 100)) : 0;
       const circumference = 2 * Math.PI * 15; // r=15
       const dashOffset = circumference - (pctFill / 100) * circumference;
       const progressRingSvg = `<div class="llm-progress-wrap"><svg class="llm-progress-ring" width="36" height="36" viewBox="0 0 36 36"><circle class="llm-progress-ring-bg" cx="18" cy="18" r="15"/><circle class="llm-progress-ring-fill" cx="18" cy="18" r="15" stroke-dasharray="${circumference.toFixed(1)}" stroke-dashoffset="${dashOffset.toFixed(1)}"/></svg></div>`;
 
-      bodyHtml=`<div class="extract-pipeline"><div class="extract-stage ${ocrDone?'done':'active'}"><div class="extract-stage-icon ${ocrDone?'extract-stage-icon--done':'extract-stage-icon--active'}">${ocrDone?'✓':''}</div>${!ocrDone?'<div class="spinner"></div>':''}<div class="extract-stage-info"><div class="extract-stage-label">${ocrLabel}</div><div class="extract-stage-desc">${ocrDone?'Text extracted from all documents':'Tesseract.js is reading your documents'}</div></div></div>${docProgressHtml}<div class="extract-stage ${llmActive?'active':''}"><div style="display:flex;align-items:center;gap:10px;flex:1;">${llmActive?progressRingSvg:`<div class="extract-stage-icon ${llmActive?'extract-stage-icon--active':'extract-stage-icon--wait'}">${llmActive?'':'○'}</div>`}<div class="extract-stage-info"><div class="extract-stage-label">${llmActive?'Structuring with '+llmProviderName+'…':'AI Structuring'}</div><div class="extract-stage-desc">${llmActive?(elapsedStr?elapsedStr+' · ':'')+'Extracting structured fields from OCR text':'Waiting for OCR to complete'}</div></div></div></div></div>${llmActive?'<div class="llm-cancel"><button class="btn btn-ghost btn-sm" id="btn-cancel-extract">✕ Cancel</button></div>':''}`;
+      bodyHtml=`<div class="extract-pipeline"><div class="extract-stage ${ocrDone?'done':'active'}"><div class="extract-stage-icon ${ocrDone?'extract-stage-icon--done':'extract-stage-icon--active'}">${ocrDone?'✓':''}</div>${!ocrDone?'<div class="spinner"></div>':''}<div class="extract-stage-info"><div class="extract-stage-label">${ocrLabel}</div><div class="extract-stage-desc">${ocrDone?'Text extracted from all documents':'Tesseract.js is reading your documents'}</div></div></div>${docProgressHtml}<div class="extract-stage ${llmActive?'active':''}"><div style="display:flex;align-items:center;gap:10px;flex:1;">${llmActive?progressRingSvg:`<div class="extract-stage-icon ${llmActive?'extract-stage-icon--active':'extract-stage-icon--wait'}">${llmActive?'':'○'}</div>`}<div class="extract-stage-info"><div class="extract-stage-label">${llmActive?llmProviderName+' Structuring'+stepLabel+'…':'AI Structuring'}</div><div class="extract-stage-desc">${llmActive?(elapsedStr?elapsedStr+' · ':'')+stepDesc:'Waiting for OCR to complete'}</div></div></div></div></div>${llmActive?'<div class="llm-cancel"><button class="btn btn-ghost btn-sm" id="btn-cancel-extract">✕ Cancel</button></div>':''}`;
     } else if(isError){
       bodyHtml=`<div class="mat-banner mat-banner--red"><span class="mat-icon">⚠</span><div class="mat-body"><div class="mat-title">Extraction failed</div><div class="mat-desc">${esc(es.error||'Unknown error')}. You can retry or fill in details manually.</div></div></div><div style="display:flex;gap:8px;"><button class="btn btn-cyan btn-sm" id="btn-extract">↻ Retry</button>${es.ocrText?'<button class="btn btn-ghost btn-sm" id="btn-dl-ocr">↓ Download OCR Text</button>':''}</div>`;
     } else if(isDone&&!isApplied){
@@ -992,14 +998,59 @@
 
       extractState[nodeId].status='llm';
       extractState[nodeId].llmStartTime = Date.now();
+      extractState[nodeId].llmStep = 1;
+      extractState[nodeId].llmTotalSteps = isEntity ? 2 : 1;
       render();
 
       const isEntity=n.type==='Root'||n.type==='Entity';
-      const extracted=await llmExtract(allText,isEntity);
-      if(llmTimerInterval){clearInterval(llmTimerInterval);llmTimerInterval=null;}
-      extractState[nodeId].extracted=extracted;
-      extractState[nodeId].status='done';
-      render();
+
+      if (isEntity) {
+        // Two-step: wrap llmExtract to update progress between steps
+        // We intercept by updating state when step 1 completes
+        const origAnthropic = llmExtractAnthropic;
+        const origOpenAI = llmExtractOpenAI;
+        let callCount = 0;
+        const trackingAnthropic = async (sys, usr) => {
+          callCount++;
+          if (callCount === 2) {
+            extractState[nodeId].llmStep = 2;
+            extractState[nodeId].llmStartTime = Date.now();
+            render();
+          }
+          return origAnthropic(sys, usr);
+        };
+        const trackingOpenAI = async (sys, usr) => {
+          callCount++;
+          if (callCount === 2) {
+            extractState[nodeId].llmStep = 2;
+            extractState[nodeId].llmStartTime = Date.now();
+            render();
+          }
+          return origOpenAI(sys, usr);
+        };
+        // Temporarily replace for this extraction
+        llmExtractAnthropic = trackingAnthropic;
+        llmExtractOpenAI = trackingOpenAI;
+        try {
+          const extracted = await llmExtract(allText, isEntity);
+          llmExtractAnthropic = origAnthropic;
+          llmExtractOpenAI = origOpenAI;
+          if(llmTimerInterval){clearInterval(llmTimerInterval);llmTimerInterval=null;}
+          extractState[nodeId].extracted=extracted;
+          extractState[nodeId].status='done';
+          render();
+        } catch(err) {
+          llmExtractAnthropic = origAnthropic;
+          llmExtractOpenAI = origOpenAI;
+          throw err;
+        }
+      } else {
+        const extracted=await llmExtract(allText,isEntity);
+        if(llmTimerInterval){clearInterval(llmTimerInterval);llmTimerInterval=null;}
+        extractState[nodeId].extracted=extracted;
+        extractState[nodeId].status='done';
+        render();
+      }
     } catch(err) {
       if(llmTimerInterval){clearInterval(llmTimerInterval);llmTimerInterval=null;}
       console.error('Extraction error:',err);
@@ -1049,23 +1100,6 @@
   }
 
   async function llmExtract(ocrText, isEntity) {
-    const entitySchema = `{
-  "legalName": "string",
-  "tradeName": "string",
-  "regNumber": "string",
-  "jurisdiction": "string",
-  "incorporationDate": "string — YYYY-MM-DD or empty",
-  "entityType": "llc|fzllc|shareholding|holding|soleEstablishment|branch|trust|foundation|other",
-  "address": "string",
-  "controllers": "string — comma-separated directors/managers/officers/signatories",
-  "shareholders": [
-    {
-      "name": "string",
-      "type": "Entity|Individual",
-      "ownershipPct": 0.00
-    }
-  ]
-}`;
     const individualSchema = `{
   "fullName": "string — full legal name",
   "nationality": "string — nationality if found",
@@ -1076,109 +1110,9 @@
   "address": "string — residential address"
 }`;
 
-    const entitySystemPrompt = `You are an expert KYB (Know Your Business) document analyst specializing in extracting structured corporate data from OCR text of official documents such as certificates of incumbency, trade licenses, MOAs, shareholder registers, cap tables, share certificates, and similar corporate records.
-
-Your task is to extract structured corporate data from OCR text and return ONLY valid JSON matching the schema below. No markdown, no explanation, no preamble.
-
-## CRITICAL OWNERSHIP CALCULATION RULES
-
-When ownership information is present, you must determine the denominator using the following priority order:
-
-### 1) HIGHEST PRIORITY: issued/outstanding holdings listed in a register or shareholder table
-
-If the document contains a shareholder register, register of members, member list, capitalization table, or any table/list showing actual current holdings, then:
-- Extract every holding row
-- Reconstruct the table carefully even if OCR has flattened it
-- Sum all holdings across all shareholders and all share classes
-- Use that sum as the ownership denominator
-
-### 2) SECOND PRIORITY: explicit issued / outstanding / subscribed / paid-up share total
-
-If no usable shareholder register exists, but the document explicitly states issued shares, outstanding shares, subscribed capital, or paid-up capital, then:
-- Use that explicitly issued/outstanding/subscribed/paid-up total as the denominator
-
-### 3) LOWEST PRIORITY: authorised capital
-
-Authorised capital is NOT the ownership denominator unless the document clearly states that the authorised shares are also the issued/outstanding shares.
-- Do NOT use authorised capital merely because it is the only large share number visible
-- Do NOT assume that all authorised shares have been issued
-
-## SHAREHOLDER MERGING RULES
-
-A single shareholder may appear multiple times across:
-- different share classes
-- different pages
-- slightly different OCR spellings
-
-You must:
-- merge all rows belonging to the same shareholder
-- sum all their holdings across all classes
-- use the cleanest version of the name
-
-## REQUIRED CALCULATION PROCESS
-
-When shareholder data exists, follow this exact order:
-
-Step 1: Extract every shareholder/member row you can identify.
-For each row capture:
-- shareholder name
-- share class if present
-- share count
-- nominal value if present
-
-Step 2: Normalize and merge names.
-Merge obvious OCR variants of the same shareholder.
-
-Step 3: Determine the denominator.
-Use the priority order above:
-- register/member list total (sum of all listed holdings)
-- else explicit issued/outstanding/subscribed/paid-up total
-- else do NOT use authorised capital unless clearly confirmed as issued/outstanding
-
-Step 4: Calculate each shareholder's total holdings.
-For each unique shareholder, sum holdings across all classes.
-
-Step 5: Calculate ownership percentage.
-ownershipPct = (shareholder total holdings / denominator) * 100
-Round to 2 decimal places.
-
-Step 6: Sanity check.
-- Ownership percentages should sum to approximately 100% when the full shareholder register is available
-- If the sum is far from 100%, you have used the wrong denominator or missed shareholders — recheck
-- Do not silently substitute authorised capital as denominator when a register is available
-
-## OCR ERROR CORRECTION RULES
-
-OCR text may contain errors. Correct obvious OCR mistakes using nearby context and arithmetic checks:
-- Dropped decimals: if most values show consistent decimal places but one does not, fix it
-- Dropped leading digits: verify using nominal value column if available (nominal = shares * par value)
-- Character substitutions: O/0, I/1/l, S/5, B/8, rn/m
-- Broken table alignment and row wrapping across lines
-- Same name spelled differently in different places — use the cleanest version
-
-## ENTITY vs INDIVIDUAL CLASSIFICATION
-
-Entity indicators: Ltd, LLC, L.L.C., Limited, Inc, Corp, Company, Holdings, Holding, Investment, Investments, Ventures, Capital, Partners, SPC, Fund, Trust, Foundation, WLL, FZCO, FZE, RSC, C.V., L.P.
-Individual indicators: person-style names without corporate suffixes
-
-## SPECIAL RULES
-- Do not confuse share class totals with overall ownership denominator unless all classes are included
-- Do not confuse authorised capital with issued/outstanding capital
-- If only one class total is stated in an authorised-capital sentence, that is NOT the total company share count
-- If the document provides an actual member register, prefer that over summary capital language
-- Extract all directors/managers/officers/signatories into controllers when available
-- "Exempted Company" in Cayman Islands -> entityType "holding" (or "other" if unclear)
-- Dates must be YYYY-MM-DD. Convert formats like "28 June 2012" -> "2012-06-28"
-- Use empty string "" for undetectable scalar fields
-- Use empty array [] only if no shareholder information exists at all
-- Include EVERY shareholder, even those with tiny percentages
-
-## OUTPUT SCHEMA
-${entitySchema}
-
-Return ONLY the JSON object.`;
-
-    const individualSystemPrompt = `You are an expert KYB document analyst. Extract structured personal identification data from OCR text of ID documents (passports, national IDs, residence visas).
+    // ── Individual: single-step extraction ──────────────────────────────────
+    if (!isEntity) {
+      const systemPrompt = `You are an expert KYB document analyst. Extract structured personal identification data from OCR text of ID documents (passports, national IDs, residence visas).
 
 ## YOUR TASK
 Extract all fields and return ONLY valid JSON. No markdown, no explanation, no preamble.
@@ -1193,47 +1127,184 @@ ${individualSchema}
 
 Use empty string "" for any field not found. Return ONLY the JSON object.`;
 
-    const systemPrompt = isEntity ? entitySystemPrompt : individualSystemPrompt;
-
-    const userPrompt = isEntity
-      ? `Analyze this OCR text from a corporate document and return ONLY the JSON object matching the schema.
-
-IMPORTANT OWNERSHIP INSTRUCTIONS:
-
-1. First identify whether the document contains:
-   - a shareholder register / member register / cap table / shareholder list
-   - or only capital summary language such as authorised capital
-
-2. If a shareholder register or member list is present:
-   - use the sum of all listed current holdings across all shareholders and all classes as the denominator
-
-3. If no register is present, but issued/outstanding/subscribed/paid-up shares are explicitly stated:
-   - use that issued/outstanding/subscribed/paid-up total as the denominator
-
-4. Do NOT use authorised capital as the denominator unless the document clearly states those authorised shares are also issued/outstanding
-
-5. Merge the same shareholder appearing across multiple classes, pages, or OCR variants
-
-6. Before finalizing:
-   - verify that the percentages are reasonable
-   - when a full shareholder register is present, the percentages should sum to approximately 100%
-   - if they do not, you have likely used the wrong denominator — recheck
-
-OCR TEXT:
-${ocrText.substring(0, 15000)}`
-      : `Extract individual identification fields from this OCR text. Return ONLY the JSON object matching the schema.
+      const userPrompt = `Extract individual identification fields from this OCR text. Return ONLY the JSON object matching the schema.
 
 OCR TEXT:
 ${ocrText.substring(0, 15000)}`;
 
-    if (apiConfig.provider === 'openai') {
-      return await llmExtractOpenAI(systemPrompt, userPrompt);
-    } else {
-      return await llmExtractAnthropic(systemPrompt, userPrompt);
+      if (apiConfig.provider === 'openai') {
+        return await llmExtractOpenAI(systemPrompt, userPrompt);
+      } else {
+        return await llmExtractAnthropic(systemPrompt, userPrompt);
+      }
     }
+
+    // ── Entity: TWO-STEP extraction ─────────────────────────────────────────
+
+    // STEP 1: Extract raw shareholder rows + entity details
+    const step1System = `You are an expert KYB document analyst extracting RAW shareholder/member data from OCR text of corporate documents.
+
+Return ONLY valid JSON. No markdown. No explanation.
+
+## TASK
+Extract two things:
+
+### A) Entity details
+Extract: legalName, tradeName, regNumber, jurisdiction, incorporationDate, entityType, address, controllers.
+- entityType must be one of: llc|fzllc|shareholding|holding|soleEstablishment|branch|trust|foundation|other
+- controllers: comma-separated list of ALL directors, managers, officers, authorized signatories
+- Dates must be YYYY-MM-DD format
+
+### B) Raw shareholder rows
+For EVERY shareholder/member row you can find across ALL pages and ALL share classes, extract:
+- name: the shareholder name (fix obvious OCR typos, use the cleanest version)
+- class: the share class (e.g. Common, ESOP, Series A, Series B, Series C, Series C-2, Preferred, etc.) or "unknown"
+- shares: the number of shares as a number (fix OCR errors)
+- nominalValue: the nominal/par value amount if shown, or null
+
+Also extract these metadata fields:
+- parValuePerShare: the par value per share if stated (e.g. 0.01), or null
+- authorisedShares: the authorised capital share count if mentioned, or null
+- issuedSharesStated: if the document explicitly states a total issued/outstanding share count, include it, or null
+
+## OCR CORRECTION RULES
+- If most share counts show consistent decimal places (e.g. "2,177.0") but one does not (e.g. "28370"), fix it to match the pattern ("2,837.0")
+- If nominal value and par value are available, cross-check: shares = nominalValue / parValuePerShare. If the OCR share count does not match, use the calculated value
+- Fix character substitutions: O/0, I/1/l, S/5, B/8, rn/m
+- Merge obvious OCR name variants of the same entity/person
+- Reconstruct table rows carefully when OCR has flattened columns across lines
+- If a name appears cleanly on one page but garbled on another, use the clean version
+
+## CRITICAL RULES
+- Include EVERY row from EVERY page. Do not stop at the first page
+- The same shareholder may appear in multiple classes — list each row separately (one row per class per shareholder)
+- Do NOT calculate percentages in this step. Just extract raw data
+- Do NOT skip small shareholders or ESOP holders
+- If the register spans multiple pages with continuation, capture all pages
+
+## OUTPUT SCHEMA
+{
+  "legalName": "",
+  "tradeName": "",
+  "regNumber": "",
+  "jurisdiction": "",
+  "incorporationDate": "",
+  "entityType": "",
+  "address": "",
+  "controllers": "",
+  "parValuePerShare": null,
+  "authorisedShares": null,
+  "issuedSharesStated": null,
+  "rawRows": [
+    { "name": "", "class": "", "shares": 0, "nominalValue": null }
+  ]
+}`;
+
+    const step1User = `Extract ALL raw shareholder rows and entity details from this OCR text. Include every row from every page across every share class. Do NOT calculate percentages — just extract raw data.
+
+OCR TEXT:
+${ocrText.substring(0, 15000)}`;
+
+    let step1Result;
+    try {
+      if (apiConfig.provider === 'openai') {
+        step1Result = await llmExtractOpenAI(step1System, step1User);
+      } else {
+        step1Result = await llmExtractAnthropic(step1System, step1User);
+      }
+    } catch(err) {
+      throw new Error('Step 1 (row extraction) failed: ' + err.message);
+    }
+
+    // STEP 2: Merge, calculate percentages, produce final output
+    const step2System = `You are an expert KYB document analyst. You will receive pre-extracted raw shareholder data from Step 1 and must produce the final structured output with correct ownership percentages.
+
+Return ONLY valid JSON. No markdown. No explanation.
+
+## OWNERSHIP DENOMINATOR RULES
+
+Determine the denominator using this strict priority:
+
+### 1) PRIMARY RULE — FULL REGISTER TOTAL
+Sum ALL shares from ALL rawRows across ALL share classes. This is the total issued shares. Use this as the denominator.
+
+### 2) CLASS RECONCILIATION RULE
+If multiple share classes exist (Common, ESOP, Series A/B/C, Preferred, etc.), do NOT use the total of any one class as the overall denominator. The denominator MUST include all classes.
+A single class total may only be used if there is clearly only one class.
+
+### 3) EXPLICIT ISSUED/OUTSTANDING TOTAL
+If issuedSharesStated is provided and is close to (within 5% of) the sum of all rawRows, you may use it as confirmation. If it differs significantly, prefer the rawRows sum.
+
+### 4) AUTHORISED CAPITAL RULE
+Do NOT use authorisedShares as the denominator unless the rawRows sum exactly equals authorisedShares, confirming all authorised shares are issued.
+Never confuse authorised capital with issued/outstanding capital.
+Never stop at the first large share count you see.
+
+## MANDATORY PROCESS
+
+1. List every unique shareholder name (merge OCR spelling variants of the same entity/person).
+2. For each unique shareholder, sum their shares across ALL classes from rawRows.
+3. Sum ALL shares from ALL rawRows across ALL classes = total issued shares = denominator.
+4. Calculate: ownershipPct = (shareholder_total / denominator) * 100, rounded to 2 decimal places.
+5. SANITY CHECK: all ownershipPct values must sum to approximately 100% (98-102% acceptable due to rounding). If not, recheck:
+   - Did you use the wrong denominator (e.g. one class subtotal instead of all classes)?
+   - Did you miss merging duplicate holders across classes?
+   - Did you miss rows from later pages?
+
+## ENTITY vs INDIVIDUAL CLASSIFICATION
+Entity indicators: Ltd, LLC, L.L.C., Limited, Inc, Corp, Company, Holdings, Holding, Investment, Investments, Ventures, Capital, Partners, SPC, Fund, Trust, Foundation, WLL, FZCO, FZE, RSC, C.V., L.P.
+Individual: person-style names without corporate suffixes.
+
+## IMPORTANT
+- Never confuse a class subtotal with the company-wide denominator
+- If multiple classes exist, the denominator must include all relevant classes
+- Prefer the rawRows sum over summary capital wording
+- Include EVERY shareholder, even those with tiny percentages
+
+## OUTPUT SCHEMA
+{
+  "legalName": "",
+  "tradeName": "",
+  "regNumber": "",
+  "jurisdiction": "",
+  "incorporationDate": "",
+  "entityType": "",
+  "address": "",
+  "controllers": "",
+  "shareholders": [
+    { "name": "", "type": "Entity|Individual", "ownershipPct": 0.00 }
+  ]
+}`;
+
+    const step2User = `Here is the pre-extracted raw data from Step 1. Merge duplicate shareholders, calculate ownership percentages using the correct denominator, and produce the final JSON.
+
+STEP 1 DATA:
+${JSON.stringify(step1Result, null, 2)}
+
+INSTRUCTIONS:
+1. Identify ALL share classes present in rawRows
+2. Sum ALL shares from ALL rawRows across ALL classes = denominator (do NOT use just one class total)
+3. Merge same-name shareholders appearing across different classes
+4. Calculate ownershipPct = (holder_total_shares / denominator) * 100 for each unique shareholder
+5. Verify percentages sum to approximately 100%
+6. If they do not sum to ~100%, recheck your denominator — you may be using a single class subtotal instead of the full multi-class total
+7. Return ONLY the final JSON object`;
+
+    let step2Result;
+    try {
+      if (apiConfig.provider === 'openai') {
+        step2Result = await llmExtractOpenAI(step2System, step2User);
+      } else {
+        step2Result = await llmExtractAnthropic(step2System, step2User);
+      }
+    } catch(err) {
+      throw new Error('Step 2 (percentage calculation) failed: ' + err.message);
+    }
+
+    return step2Result;
   }
 
-  async function llmExtractAnthropic(systemPrompt, userPrompt) {
+  let llmExtractAnthropic = async function(systemPrompt, userPrompt) {
     try {
       currentAbortController = new AbortController();
       const timeoutId = setTimeout(() => currentAbortController?.abort(), 60000);
@@ -1262,7 +1333,7 @@ ${ocrText.substring(0, 15000)}`;
     }
   }
 
-  async function llmExtractOpenAI(systemPrompt, userPrompt) {
+  let llmExtractOpenAI = async function(systemPrompt, userPrompt) {
     try {
       currentAbortController = new AbortController();
       const timeoutId = setTimeout(() => currentAbortController?.abort(), 60000);
