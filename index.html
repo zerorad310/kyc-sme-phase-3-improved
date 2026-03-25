@@ -317,6 +317,43 @@
     .llm-elapsed{font-family:var(--fm);font-size:9px;color:var(--txt-mute);margin-top:2px;}
     .llm-cancel{margin-top:8px;}
 
+    /* KYC Section */
+    .kyc-section{margin-top:16px;}
+    .kyc-card{padding:16px;background:var(--surf3);border:1px solid var(--bdr);border-radius:8px;margin-bottom:12px;transition:border-color .15s;}
+    .kyc-card:last-child{margin-bottom:0;}
+    .kyc-card-header{display:flex;align-items:center;gap:10px;margin-bottom:12px;}
+    .kyc-card-name{font-family:var(--fm);font-size:12px;font-weight:600;color:var(--txt);flex:1;}
+    .kyc-role-tag{padding:2px 8px;border-radius:3px;font-family:var(--fm);font-size:8px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;}
+    .kyc-role-tag--ubo{background:rgba(239,68,68,.1);color:var(--red);border:1px solid var(--red-bdr);}
+    .kyc-role-tag--sig{background:var(--amb-bg);color:var(--amber);border:1px solid var(--amb-bdr);}
+    .kyc-role-tag--ctrl{background:var(--purp-bg);color:var(--purple);border:1px solid var(--purp-bdr);}
+    .kyc-pct{font-family:var(--fm);font-size:10px;color:var(--txt-dim);}
+    .kyc-residency{display:flex;gap:8px;margin-bottom:12px;}
+    .kyc-res-btn{flex:1;padding:10px 14px;background:var(--surf2);border:1px solid var(--bdr-mid);border-radius:6px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;transition:all .15s;font-family:var(--fm);text-align:center;}
+    .kyc-res-btn:hover{border-color:var(--bdr-hi);background:var(--surf4);}
+    .kyc-res-btn.selected{border-color:var(--accent);background:var(--acc-soft);}
+    .kyc-res-btn-icon{font-size:18px;opacity:.5;}
+    .kyc-res-btn.selected .kyc-res-btn-icon{opacity:1;}
+    .kyc-res-btn-label{font-size:10px;font-weight:500;color:var(--txt-dim);}
+    .kyc-res-btn.selected .kyc-res-btn-label{color:var(--accent);}
+    .kyc-res-btn-hint{font-size:8px;color:var(--txt-mute);}
+    .kyc-res-btn.selected .kyc-res-btn-hint{color:var(--txt-dim);}
+    .kyc-doc-area{margin-top:10px;}
+    .kyc-doc-drop{border:1.5px dashed var(--bdr-mid);border-radius:6px;padding:16px 12px;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;transition:all .15s;position:relative;}
+    .kyc-doc-drop:hover{border-color:var(--accent);background:var(--acc-soft);}
+    .kyc-doc-drop input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;}
+    .kyc-doc-drop-icon{font-size:16px;opacity:.3;}
+    .kyc-doc-drop-text{font-family:var(--fm);font-size:10px;color:var(--txt-dim);text-align:center;}
+    .kyc-doc-drop-text strong{color:var(--accent);}
+    .kyc-doc-item-sm{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--surf2);border:1px solid var(--bdr);border-radius:5px;margin-top:8px;}
+    .kyc-doc-name-sm{font-family:var(--fm);font-size:10px;color:var(--txt);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .kyc-extract-btn{margin-top:8px;}
+    .kyc-status{display:flex;align-items:center;gap:6px;margin-top:8px;font-family:var(--fm);font-size:9px;padding:6px 10px;border-radius:5px;}
+    .kyc-status--done{background:var(--grn-bg);color:var(--green);border:1px solid var(--grn-bdr);}
+    .kyc-status--processing{background:var(--cyan-bg);color:var(--cyan);border:1px solid var(--cyan-bdr);}
+    .kyc-status--error{background:var(--red-bg);color:var(--red);border:1px solid var(--red-bdr);}
+    .kyc-fields{margin-top:10px;}
+
     /* Submit button */
     .sb-submit{padding:10px 14px;border-top:1px solid var(--bdr);flex-shrink:0;}
     .btn-submit{width:100%;height:36px;background:var(--green);border:none;border-radius:6px;color:#fff;font-family:var(--fm);font-size:11px;font-weight:600;letter-spacing:.06em;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:all .15s;}
@@ -471,6 +508,8 @@
   const THRESH_UBO = 25, THRESH_SIG = 15;
   let layers = {}, activeLayerId = 'root', addFormOpen = {}, idCounter = 0;
   let docStore = {}, extractState = {};
+  // KYC store: personKey -> { residency:'uae'|'nonuae'|null, doc:null, extractState:{status,ocrText,extracted,error,appliedToForm}, data:{...} }
+  let kycStore = {};
 
   // API configuration
   let apiConfig = { provider: 'anthropic', apiKey: '' };
@@ -534,7 +573,7 @@
 
   function initState() {
     layers = { root: { id:'root', type:'Root', label:'Applicant Company', parentId:null, layer:0, ownPct:100, effPct:100, children:[], data:{ legalName:'', tradeName:'', regNumber:'', jurisdiction:'', incorporationDate:'', entityType:'', address:'', controllers:'', notes:'' } } };
-    activeLayerId = 'root'; addFormOpen = {}; idCounter = 0; docStore = {}; extractState = {};
+    activeLayerId = 'root'; addFormOpen = {}; idCounter = 0; docStore = {}; extractState = {}; kycStore = {};
   }
   initState();
 
@@ -648,6 +687,7 @@
     html+=renderDetailsStep(n,stepIdx++);
     if(n.layer>0) html+=renderOwnershipStep(n,stepIdx++);
     if(isEntity) html+=renderShareholdersStep(n,stepIdx++);
+    if(isEntity) html+=renderKycStep(n,stepIdx++);
     html+=renderDisclaimerBar(displayName);
     html+='<div class="page-bottom-spacer"></div>';
     mainContent.innerHTML=html;
@@ -655,6 +695,7 @@
     wireFormEvents(n);
     wireDocEvents(n);
     wireExtractionEvents(n);
+    wireKycEvents(n);
   }
 
   function buildBreadcrumb(id) {
@@ -834,6 +875,237 @@
     return `<div class="step fade-in"><div class="step-header"><div class="step-num ${numCls}">${stepIdx}</div><span class="step-title">Step ${stepIdx} · <span class="step-title-main">Shareholders</span></span><div class="step-line"></div><span class="step-badge step-badge--count">${nonCB.length} declared</span></div><div class="step-body">${bannerHtml}${tableHtml}${pctBar}<div class="sh-add-area"><button class="sh-add-btn" id="sh-add-toggle" ${isFormOpen?'style="display:none"':''}><span class="plus">+</span> Add Shareholder</button><div class="sh-add-form ${isFormOpen?'open':''}" id="sh-add-form"><div class="form-grid"><div class="fg"><label class="fl">Type</label><select class="sel" id="add-type"><option value="Entity">Entity</option><option value="Individual">Individual</option></select></div><div class="fg"><label class="fl">Ownership %</label><input class="inp" id="add-pct" type="number" min="0.01" max="100" step="0.01" placeholder="0.00"/></div><div class="fg fg-full"><label class="fl">Name</label><input class="inp" id="add-name" placeholder="Legal name or full name…"/></div></div><div class="sh-add-actions"><button class="btn btn-ghost btn-sm" id="add-cancel">Cancel</button><button class="btn btn-primary btn-sm" id="add-confirm">Add Shareholder</button></div></div></div></div></div>`;
   }
 
+  /* ── KYC: Collect persons requiring KYC ────────── */
+  function getKycPersonsForNode(n) {
+    const persons = [];
+    const isRoot = n.id === 'root';
+    const isEntity = n.type === 'Root' || n.type === 'Entity';
+    if (!isEntity) return persons;
+
+    // Controllers — only for root/Layer 0
+    if (isRoot && n.data.controllers && n.data.controllers.trim()) {
+      const names = n.data.controllers.split(',').map(s => s.trim()).filter(Boolean);
+      names.forEach(name => {
+        const key = 'ctrl_' + name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+        if (!persons.find(p => p.key === key)) {
+          persons.push({ key, name, role: 'controller', roleLabel: 'Controller', effPct: null });
+        }
+      });
+    }
+
+    // UBOs and Significant Shareholders — scan all individuals in the tree
+    function scanTree(id) {
+      const nd = layers[id]; if (!nd) return;
+      if (nd.type === 'Individual') {
+        const name = nd.data.fullName || nd.label;
+        if (nd.effPct >= 25) {
+          const key = 'ubo_' + nd.id;
+          if (!persons.find(p => p.key === key)) {
+            persons.push({ key, name, role: 'ubo', roleLabel: 'UBO (≥25%)', effPct: nd.effPct, nodeId: nd.id });
+          }
+        } else if (nd.effPct >= 15) {
+          const key = 'sig_' + nd.id;
+          if (!persons.find(p => p.key === key)) {
+            persons.push({ key, name, role: 'significant', roleLabel: 'Significant (≥15%)', effPct: nd.effPct, nodeId: nd.id });
+          }
+        }
+      }
+      nd.children.forEach(cid => scanTree(cid));
+    }
+    scanTree('root');
+
+    // Deduplicate: if a controller is also a UBO/sig, keep both tags but one card
+    const merged = [];
+    const byName = {};
+    persons.forEach(p => {
+      const normName = p.name.toLowerCase().trim();
+      if (!byName[normName]) {
+        byName[normName] = { ...p, roles: [{ role: p.role, roleLabel: p.roleLabel }] };
+        merged.push(byName[normName]);
+      } else {
+        if (!byName[normName].roles.find(r => r.role === p.role)) {
+          byName[normName].roles.push({ role: p.role, roleLabel: p.roleLabel });
+        }
+        if (p.effPct !== null && (byName[normName].effPct === null || p.effPct > byName[normName].effPct)) {
+          byName[normName].effPct = p.effPct;
+        }
+      }
+    });
+    return merged;
+  }
+
+  function getKyc(key) {
+    if (!kycStore[key]) {
+      kycStore[key] = { residency: null, doc: null, extractState: { status: 'idle' }, data: { fullName:'', nationality:'', dob:'', idType:'', idNumber:'', idExpiry:'', address:'' } };
+    }
+    return kycStore[key];
+  }
+
+  /* ── KYC Step Rendering ────────────────────────── */
+  function renderKycStep(n, stepIdx) {
+    const persons = getKycPersonsForNode(n);
+    if (persons.length === 0) return '';
+
+    const isRoot = n.id === 'root';
+    const completedCount = persons.filter(p => {
+      const kyc = getKyc(p.key);
+      return kyc.data.fullName && kyc.data.idNumber;
+    }).length;
+    const numCls = completedCount === persons.length ? 'step-num--done' : completedCount > 0 ? 'step-num--active' : 'step-num--active';
+
+    let cardsHtml = '';
+    persons.forEach(p => {
+      const kyc = getKyc(p.key);
+      // Pre-fill name if empty
+      if (!kyc.data.fullName && p.name) kyc.data.fullName = p.name;
+
+      const roleTags = p.roles.map(r => {
+        const cls = r.role === 'ubo' ? 'kyc-role-tag--ubo' : r.role === 'significant' ? 'kyc-role-tag--sig' : 'kyc-role-tag--ctrl';
+        return `<span class="kyc-role-tag ${cls}">${r.roleLabel}</span>`;
+      }).join(' ');
+      const pctStr = p.effPct !== null ? `<span class="kyc-pct">${p.effPct.toFixed(2)}% effective</span>` : '';
+
+      // Residency selection
+      let residencyHtml = '';
+      if (!kyc.residency) {
+        residencyHtml = `<div style="font-family:var(--fm);font-size:10px;color:var(--txt-dim);margin-bottom:6px;">Is <strong style="color:var(--txt)">${esc(p.name)}</strong> a UAE resident?</div><div class="kyc-residency"><button class="kyc-res-btn" data-kyc-res="${p.key}" data-res="uae"><span class="kyc-res-btn-icon">🏢</span><span class="kyc-res-btn-label">UAE Resident</span><span class="kyc-res-btn-hint">Emirates ID required</span></button><button class="kyc-res-btn" data-kyc-res="${p.key}" data-res="nonuae"><span class="kyc-res-btn-icon">✈</span><span class="kyc-res-btn-label">Non-UAE</span><span class="kyc-res-btn-hint">Passport required</span></button></div>`;
+      } else {
+        const resLabel = kyc.residency === 'uae' ? 'UAE Resident · Emirates ID' : 'Non-UAE · Passport';
+        const docType = kyc.residency === 'uae' ? 'Emirates ID' : 'Passport';
+
+        let docHtml = '';
+        if (!kyc.doc) {
+          docHtml = `<div class="kyc-doc-area"><div class="kyc-doc-drop" data-kyc-drop="${p.key}"><input type="file" data-kyc-file="${p.key}" accept=".pdf,.png,.jpg,.jpeg,.webp"/><div class="kyc-doc-drop-icon">↑</div><div class="kyc-doc-drop-text">Upload <strong>${docType}</strong> for ${esc(p.name)}</div></div></div>`;
+        } else {
+          const es = kyc.extractState;
+          let statusHtml = '';
+          if (es.status === 'idle') {
+            statusHtml = `<div class="kyc-extract-btn"><button class="btn btn-cyan btn-sm" data-kyc-extract="${p.key}">⚡ Extract from ${docType}</button></div>`;
+          } else if (es.status === 'processing') {
+            statusHtml = `<div class="kyc-status kyc-status--processing"><div class="spinner"></div> Extracting data from ${docType}…</div>`;
+          } else if (es.status === 'error') {
+            statusHtml = `<div class="kyc-status kyc-status--error">⚠ ${esc(es.error)}</div><div class="kyc-extract-btn"><button class="btn btn-cyan btn-sm" data-kyc-extract="${p.key}">↻ Retry</button></div>`;
+          } else if (es.status === 'done') {
+            statusHtml = `<div class="kyc-status kyc-status--done">✓ Data extracted — review fields below</div>`;
+          }
+          docHtml = `<div class="kyc-doc-area"><div class="kyc-doc-item-sm"><span style="font-size:12px;">${kyc.residency==='uae'?'🪪':'📘'}</span><span class="kyc-doc-name-sm">${esc(kyc.doc.name)}</span><button class="doc-remove" data-kyc-doc-remove="${p.key}" title="Remove">✕</button></div>${statusHtml}</div>`;
+        }
+
+        // KYC data fields
+        const d = kyc.data;
+        const fieldsHtml = `<div class="kyc-fields"><div class="form-grid">
+          <div class="fg"><label class="fl">Full Name</label><input class="inp" data-kyc-field="${p.key}" data-kf="fullName" value="${esc(d.fullName||'')}" placeholder="Full legal name…"/></div>
+          <div class="fg"><label class="fl">Nationality</label><input class="inp" data-kyc-field="${p.key}" data-kf="nationality" value="${esc(d.nationality||'')}" placeholder="e.g. UAE, Indian, British…"/></div>
+          <div class="fg"><label class="fl">Date of Birth</label><input class="inp" type="date" data-kyc-field="${p.key}" data-kf="dob" value="${d.dob||''}"/></div>
+          <div class="fg"><label class="fl">ID Type</label><select class="sel" data-kyc-field="${p.key}" data-kf="idType"><option value="">Select…</option><option value="passport" ${d.idType==='passport'?'selected':''}>Passport</option><option value="nationalId" ${d.idType==='nationalId'?'selected':''}>National ID / Emirates ID</option><option value="residenceVisa" ${d.idType==='residenceVisa'?'selected':''}>Residence Visa</option></select></div>
+          <div class="fg"><label class="fl">ID Number</label><input class="inp" data-kyc-field="${p.key}" data-kf="idNumber" value="${esc(d.idNumber||'')}" placeholder="Document number…"/></div>
+          <div class="fg"><label class="fl">ID Expiry</label><input class="inp" type="date" data-kyc-field="${p.key}" data-kf="idExpiry" value="${d.idExpiry||''}"/></div>
+          <div class="fg fg-full"><label class="fl">Address</label><input class="inp" data-kyc-field="${p.key}" data-kf="address" value="${esc(d.address||'')}" placeholder="Residential address…"/></div>
+        </div></div>`;
+
+        residencyHtml = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><span style="font-family:var(--fm);font-size:9px;color:var(--txt-mute);letter-spacing:.06em;">${resLabel}</span><button class="btn btn-ghost btn-sm" data-kyc-change-res="${p.key}" style="height:20px;padding:0 6px;font-size:8px;">Change</button></div>${docHtml}${fieldsHtml}`;
+      }
+
+      cardsHtml += `<div class="kyc-card"><div class="kyc-card-header"><span class="kyc-card-name">${esc(p.name)}</span>${roleTags}${pctStr}</div>${residencyHtml}</div>`;
+    });
+
+    const title = isRoot ? 'KYC — Controllers, UBOs & Significant Shareholders' : 'KYC — UBOs & Significant Shareholders';
+
+    return `<div class="step fade-in"><div class="step-header"><div class="step-num ${numCls}">${stepIdx}</div><span class="step-title">Step ${stepIdx} · <span class="step-title-main">${title}</span></span><div class="step-line"></div><span class="step-badge step-badge--count">${completedCount}/${persons.length} verified</span></div><div class="step-body"><div class="kyc-section">${cardsHtml}</div></div></div>`;
+  }
+
+  function wireKycEvents(n) {
+    // Residency selection
+    mainContent.querySelectorAll('[data-kyc-res]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.kycRes;
+        const res = btn.dataset.res;
+        const kyc = getKyc(key);
+        kyc.residency = res;
+        kyc.data.idType = res === 'uae' ? 'nationalId' : 'passport';
+        render();
+      });
+    });
+    // Change residency
+    mainContent.querySelectorAll('[data-kyc-change-res]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.kycChangeRes;
+        const kyc = getKyc(key);
+        kyc.residency = null; kyc.doc = null; kyc.extractState = { status: 'idle' };
+        render();
+      });
+    });
+    // File upload
+    mainContent.querySelectorAll('[data-kyc-file]').forEach(input => {
+      input.addEventListener('change', () => {
+        const key = input.dataset.kycFile;
+        if (!input.files.length) return;
+        const file = input.files[0];
+        if (file.size > 10*1024*1024) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          const kyc = getKyc(key);
+          kyc.doc = { name: file.name, size: file.size, type: file.type, dataUrl: reader.result };
+          kyc.extractState = { status: 'idle' };
+          render();
+        };
+        reader.readAsDataURL(file);
+      });
+    });
+    // Remove doc
+    mainContent.querySelectorAll('[data-kyc-doc-remove]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const kyc = getKyc(btn.dataset.kycDocRemove);
+        kyc.doc = null; kyc.extractState = { status: 'idle' };
+        render();
+      });
+    });
+    // Extract from doc
+    mainContent.querySelectorAll('[data-kyc-extract]').forEach(btn => {
+      btn.addEventListener('click', () => runKycExtraction(btn.dataset.kycExtract));
+    });
+    // Field edits
+    mainContent.querySelectorAll('[data-kyc-field]').forEach(f => {
+      const evt = f.tagName === 'SELECT' ? 'change' : 'input';
+      f.addEventListener(evt, () => {
+        const kyc = getKyc(f.dataset.kycField);
+        kyc.data[f.dataset.kf] = f.value;
+      });
+    });
+  }
+
+  async function runKycExtraction(key) {
+    const kyc = getKyc(key);
+    if (!kyc.doc || !hasApiKey()) return;
+    kyc.extractState = { status: 'processing', ocrText: '', extracted: null, error: null };
+    render();
+    try {
+      // OCR
+      let ocrText = '';
+      if (kyc.doc.type === 'application/pdf') { ocrText = await ocrPdf(kyc.doc.dataUrl); }
+      else { ocrText = await ocrImage(kyc.doc.dataUrl); }
+      kyc.extractState.ocrText = ocrText;
+      // LLM — individual extraction (single step)
+      const individualSchema = `{"fullName":"","nationality":"","dob":"YYYY-MM-DD","idType":"passport|nationalId|residenceVisa","idNumber":"","idExpiry":"YYYY-MM-DD","address":""}`;
+      const sysPrompt = `You are a KYB document analyst. Extract personal ID data from OCR text. Return ONLY valid JSON. No markdown.\nFix OCR errors (0/O, 1/l/I, 5/S). Dates -> YYYY-MM-DD.\nSchema: ${individualSchema}\nUse "" for missing fields.`;
+      const userPrompt = `Extract individual identification fields. Return ONLY JSON.\n\nOCR TEXT:\n${ocrText.substring(0, 15000)}`;
+      let result;
+      if (apiConfig.provider === 'openai') { result = await llmExtractOpenAI(sysPrompt, userPrompt); }
+      else { result = await llmExtractAnthropic(sysPrompt, userPrompt); }
+      // Apply
+      for (const [k, v] of Object.entries(result)) {
+        if (v && String(v).trim() && kyc.data.hasOwnProperty(k)) kyc.data[k] = v;
+      }
+      kyc.extractState.status = 'done';
+      kyc.extractState.extracted = result;
+      render();
+    } catch(err) {
+      kyc.extractState.status = 'error';
+      kyc.extractState.error = err.message || 'Extraction failed';
+      render();
+    }
+  }
+
   function renderDisclaimerBar(entityName) {
     return `<div class="disclaimer fade-in"><div class="disc-icon">⚑</div><div class="disc-body"><div class="disc-title">Review before confirming</div><div class="disc-text">Verify accuracy and completeness of all information for <strong>${esc(entityName)}</strong>. AI-extracted data should be carefully reviewed — you are responsible for confirming all details are correct.</div></div></div>`;
   }
@@ -986,6 +1258,7 @@
       }
       extractState[nodeId].ocrProgress={done:docs.length,total:docs.length};
       extractState[nodeId].ocrText=allText.trim();
+      const isEntity=n.type==='Root'||n.type==='Entity';
 
       // If no API key, skip LLM step and go straight to done with OCR only
       if(!hasApiKey()){
@@ -1001,8 +1274,6 @@
       extractState[nodeId].llmStep = 1;
       extractState[nodeId].llmTotalSteps = isEntity ? 2 : 1;
       render();
-
-      const isEntity=n.type==='Root'||n.type==='Entity';
 
       if (isEntity) {
         // Two-step: wrap llmExtract to update progress between steps
@@ -1604,6 +1875,13 @@ INSTRUCTIONS:
       },
       ubos: ubos.map(u => ({ name: u.name, effectivePct: u.effectivePct, nationality: u.data.nationality, idType: u.data.idType, idNumber: u.data.idNumber })),
       allIndividuals: allIndividuals.map(u => ({ name: u.name, effectivePct: u.effectivePct, directPct: u.directPct, layer: u.layer, parentEntity: u.parentEntity })),
+      kycVerifications: Object.entries(kycStore).filter(([k,v]) => v.data.fullName).map(([key, kyc]) => ({
+        key,
+        residency: kyc.residency,
+        documentUploaded: kyc.doc ? kyc.doc.name : null,
+        extractionStatus: kyc.extractState.status,
+        data: { ...kyc.data }
+      })),
       ownershipStructure: structure
     };
   }
