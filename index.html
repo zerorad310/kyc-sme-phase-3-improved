@@ -510,6 +510,9 @@
   let docStore = {}, extractState = {};
   // KYC store: personKey -> { residency:'uae'|'nonuae'|null, doc:null, extractState:{status,ocrText,extracted,error,appliedToForm}, data:{...} }
   let kycStore = {};
+  // LLM extract functions (declared as let so they can be temporarily wrapped for progress tracking)
+  let llmExtractAnthropic = null;
+  let llmExtractOpenAI = null;
 
   // API configuration
   let apiConfig = { provider: 'anthropic', apiKey: '' };
@@ -1242,6 +1245,7 @@
     const docs=docStore[nodeId]||[];
     if(docs.length===0)return;
     const n=layers[nodeId];if(!n)return;
+    const isEntity=n.type==='Root'||n.type==='Entity';
     extractState[nodeId]={status:'ocr',ocrText:'',extracted:null,error:null,appliedToForm:false,ocrProgress:{done:0,total:docs.length}};
     render();
 
@@ -1258,7 +1262,6 @@
       }
       extractState[nodeId].ocrProgress={done:docs.length,total:docs.length};
       extractState[nodeId].ocrText=allText.trim();
-      const isEntity=n.type==='Root'||n.type==='Entity';
 
       // If no API key, skip LLM step and go straight to done with OCR only
       if(!hasApiKey()){
@@ -1575,7 +1578,7 @@ INSTRUCTIONS:
     return step2Result;
   }
 
-  let llmExtractAnthropic = async function(systemPrompt, userPrompt) {
+  llmExtractAnthropic = async function(systemPrompt, userPrompt) {
     try {
       currentAbortController = new AbortController();
       const timeoutId = setTimeout(() => currentAbortController?.abort(), 60000);
@@ -1604,7 +1607,7 @@ INSTRUCTIONS:
     }
   }
 
-  let llmExtractOpenAI = async function(systemPrompt, userPrompt) {
+  llmExtractOpenAI = async function(systemPrompt, userPrompt) {
     try {
       currentAbortController = new AbortController();
       const timeoutId = setTimeout(() => currentAbortController?.abort(), 60000);
