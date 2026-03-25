@@ -715,7 +715,7 @@
       const elapsed = es.llmStartTime ? Math.round((Date.now() - es.llmStartTime) / 1000) : 0;
       const elapsedStr = elapsed > 0 ? `${elapsed}s elapsed` : '';
       // Progress ring: fills over ~30s as an estimate
-      const pctFill = llmActive ? Math.min(95, Math.round((elapsed / 30) * 100)) : 0;
+      const pctFill = llmActive ? Math.min(95, Math.round((elapsed / 60) * 100)) : 0;
       const circumference = 2 * Math.PI * 15; // r=15
       const dashOffset = circumference - (pctFill / 100) * circumference;
       const progressRingSvg = `<div class="llm-progress-wrap"><svg class="llm-progress-ring" width="36" height="36" viewBox="0 0 36 36"><circle class="llm-progress-ring-bg" cx="18" cy="18" r="15"/><circle class="llm-progress-ring-fill" cx="18" cy="18" r="15" stroke-dasharray="${circumference.toFixed(1)}" stroke-dashoffset="${dashOffset.toFixed(1)}"/></svg></div>`;
@@ -1048,37 +1048,121 @@
     }catch(err){console.error('PDF OCR error:',err);return '[PDF processing failed]';}
   }
 
-  async function llmExtract(ocrText,isEntity) {
-    const entityFields=`{
-  "legalName": "registered legal name of the company",
-  "tradeName": "trade name / DBA if different",
-  "regNumber": "registration or license number",
-  "jurisdiction": "jurisdiction (e.g. DIFC, ADGM, BVI, Dubai mainland)",
-  "incorporationDate": "YYYY-MM-DD format if found",
-  "entityType": "one of: llc, fzllc, shareholding, holding, soleEstablishment, branch, trust, foundation, other",
-  "address": "registered address",
-  "controllers": "comma-separated list of directors, managers, signatories, authorized persons, or controllers mentioned in the document",
+  async function llmExtract(ocrText, isEntity) {
+    const entitySchema = `{
+  "legalName": "string — registered legal name of the company",
+  "tradeName": "string — trade name / DBA if different, or empty string",
+  "regNumber": "string — registration or license number",
+  "jurisdiction": "string — jurisdiction of incorporation (e.g. Cayman Islands, DIFC, ADGM, BVI)",
+  "incorporationDate": "string — YYYY-MM-DD format, or empty string",
+  "entityType": "string — one of: llc|fzllc|shareholding|holding|soleEstablishment|branch|trust|foundation|other",
+  "address": "string — registered address",
+  "controllers": "string — comma-separated list of ALL directors, managers, officers, authorized signatories",
   "shareholders": [
     {
-      "name": "shareholder name exactly as it appears",
-      "type": "Entity or Individual (infer from context - if it looks like a company name use Entity, if a person name use Individual)",
+      "name": "string — exact name from document (correct obvious OCR typos)",
+      "type": "string — 'Entity' or 'Individual'",
       "ownershipPct": 0.00
     }
   ]
 }`;
-    const individualFields=`{
-  "fullName": "full legal name",
-  "nationality": "nationality",
-  "dob": "YYYY-MM-DD format if found",
-  "idType": "one of: passport, nationalId, residenceVisa",
-  "idNumber": "document/ID number",
-  "idExpiry": "YYYY-MM-DD format if found",
-  "address": "residential address"
+    const individualSchema = `{
+  "fullName": "string — full legal name",
+  "nationality": "string — nationality if found",
+  "dob": "string — YYYY-MM-DD format, or empty string",
+  "idType": "string — one of: passport|nationalId|residenceVisa, or empty string",
+  "idNumber": "string — document/ID number",
+  "idExpiry": "string — YYYY-MM-DD format, or empty string",
+  "address": "string — residential address"
 }`;
-    const systemPrompt = isEntity
-      ? `You are a KYB (Know Your Business) document data extractor. Extract ALL structured fields from the OCR text, including shareholders/owners and controllers/directors. Return ONLY valid JSON — no markdown, no backticks, no explanation. Use empty string "" for text fields you cannot detect. For shareholders, extract EVERY shareholder/owner/partner mentioned with their name, type, and ownership percentage. If percentage is shown as shares (e.g. 500 out of 1000 shares), calculate the percentage. The shareholders array should be empty [] only if no ownership information exists in the text. For controllers, list ALL directors, managers, signatories, partners, or authorized persons found. Dates must be YYYY-MM-DD. Use exact enum values for entityType.`
-      : `You are a KYB document data extractor. Extract structured fields from OCR text. Return ONLY valid JSON — no markdown, no backticks, no explanation. Use empty string "" for undetectable fields. Dates must be YYYY-MM-DD. Use exact enum values for idType.`;
-    const userPrompt=`Extract these fields from the OCR text. Return ONLY the JSON object.\n\nFields:\n${isEntity?entityFields:individualFields}\n\nOCR Text:\n${ocrText.substring(0,12000)}`;
+
+    const entitySystemPrompt = `You are an expert KYB (Know Your Business) document analyst specializing in extracting structured corporate data from OCR text of official documents (certificates of incumbency, trade licenses, MOAs, share certificates, etc.).
+
+## YOUR TASK
+Extract ALL structured fields from the OCR text and return ONLY valid JSON matching the schema below. No markdown fences, no explanation, no preamble — just the JSON object.
+
+## CRITICAL: SHARE-TO-PERCENTAGE CALCULATION METHODOLOGY
+When the document contains a shareholder register or ownership information, follow this EXACT process:
+
+### Step 1: Identify Total Shares
+- Look for "authorised capital", "divided into X shares", or a running member register
+- If multiple share CLASSES exist (Common, Preferred Series A/B/C, ESOP, etc.), compute TOTAL ISSUED shares by summing every individual shareholding listed in the register
+- IMPORTANT: The "authorised" count may exceed issued shares. Use actual ISSUED shares (the sum of all holdings in the register) as the denominator
+
+### Step 2: For Each Shareholder
+- The SAME person/entity may appear MULTIPLE TIMES for different share classes — you MUST merge them
+- Sum ALL their shares across ALL classes (Common + ESOP + Series A + Series B + etc.)
+- Calculate: ownershipPct = (their total shares / total issued shares) * 100
+- Round to 2 decimal places
+
+### Step 3: Cross-Validate
+- All ownershipPct values MUST sum to approximately 100% (98-100% acceptable due to rounding)
+- If they don't, you made a calculation error — recheck your arithmetic
+
+### Step 4: Name Deduplication
+- Merge OCR variants of the same name (e.g., "Bazookat Equity Ltd" and "Bazooka Equity Ltd." are the same entity — use the cleaner version)
+- Use the cleanest/most complete version of each name
+
+## OCR ERROR CORRECTION RULES
+OCR text WILL contain errors. Apply these corrections:
+1. **Decimal drops**: If most share counts show 1 decimal (e.g. "2,177.0", "25,000.0"), but one reads "28370" instead of "2,837.0", fix it
+2. **Leading digit drops**: "2,755.0" may actually be "82,755.0" — verify using the Nominal Value column (nominal = shares * $0.01 par value). If nominal is "827.55", the shares are 82,755.0 not 2,755.0
+3. **Character substitution**: 0<->O, 1<->l<->I, 5<->S, 8<->B, rn<->m are common OCR errors
+4. **Garbled text**: Reconstruct names from context. If a name appears cleanly on one page but garbled on another, use the clean version
+5. **Table flattening**: OCR destroys table structure — carefully reconstruct Member | Shares | Class | Nominal Value relationships
+
+## ENTITY vs INDIVIDUAL CLASSIFICATION
+Entity indicators: Ltd, LLC, L.L.C., Limited, Inc, Corp, L.P., Fund, Trust, SPC, Holdings, Partners, Ventures, Capital, Investment(s), Company, WLL, FZCO, FZE, RSC, C.V.
+Individual indicators: First name + last name pattern with no corporate suffix
+
+## SPECIAL RULES
+- "Exempted Company" in Cayman Islands -> entityType "holding" (or "other" if unclear)
+- Extract ALL directors from "Register of Directors" section -> controllers field
+- Date conversion: "28 June 2012" -> "2012-06-28"
+- Empty string "" for undetectable fields
+- Include EVERY shareholder, even those with tiny percentages (ESOP holders, etc.)
+
+## OUTPUT SCHEMA
+${entitySchema}
+
+Return ONLY the JSON object.`;
+
+    const individualSystemPrompt = `You are an expert KYB document analyst. Extract structured personal identification data from OCR text of ID documents (passports, national IDs, residence visas).
+
+## YOUR TASK
+Extract all fields and return ONLY valid JSON. No markdown, no explanation, no preamble.
+
+## OCR ERROR CORRECTION
+- Fix character misreads (0<->O, 1<->l<->I, 5<->S)
+- Reconstruct names/numbers from surrounding context
+- Dates -> YYYY-MM-DD format
+
+## OUTPUT SCHEMA
+${individualSchema}
+
+Use empty string "" for any field not found. Return ONLY the JSON object.`;
+
+    const systemPrompt = isEntity ? entitySystemPrompt : individualSystemPrompt;
+
+    const userPrompt = isEntity
+      ? `Analyze this OCR text from a corporate document. Follow the share calculation methodology EXACTLY.
+
+CRITICAL INSTRUCTIONS:
+1. FIRST: Sum ALL shares held by ALL members across ALL classes to get total issued shares
+2. THEN: For each UNIQUE shareholder, sum their holdings across all classes
+3. THEN: Calculate ownership % = (shareholder total shares / grand total issued shares) * 100
+4. VERIFY: Your percentages must sum to approximately 100%
+
+If the document has a "Total Nominal Value" column and par value is $0.01 per share, you can cross-check: shares = nominal_value / 0.01. This helps catch OCR errors in share counts.
+
+Return ONLY the JSON object matching the schema.
+
+OCR TEXT:
+${ocrText.substring(0, 15000)}`
+      : `Extract individual identification fields from this OCR text. Return ONLY the JSON object matching the schema.
+
+OCR TEXT:
+${ocrText.substring(0, 15000)}`;
 
     if (apiConfig.provider === 'openai') {
       return await llmExtractOpenAI(systemPrompt, userPrompt);
@@ -1088,60 +1172,69 @@
   }
 
   async function llmExtractAnthropic(systemPrompt, userPrompt) {
-    try{
+    try {
       currentAbortController = new AbortController();
-      const timeoutId = setTimeout(() => currentAbortController?.abort(), 30000);
+      const timeoutId = setTimeout(() => currentAbortController?.abort(), 60000);
       const headers = {"Content-Type":"application/json"};
       if (apiConfig.apiKey) {
         headers["x-api-key"] = apiConfig.apiKey;
         headers["anthropic-version"] = "2023-06-01";
         headers["anthropic-dangerous-direct-browser-access"] = "true";
       }
-      const response=await fetch("https://api.anthropic.com/v1/messages",{
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
         method:"POST",
         headers,
         signal: currentAbortController.signal,
-        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,system:systemPrompt,messages:[{role:"user",content:userPrompt}]})
+        body: JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:2000,system:systemPrompt,messages:[{role:"user",content:userPrompt}]})
       });
       clearTimeout(timeoutId);
       currentAbortController = null;
       if(!response.ok){const errData=await response.json().catch(()=>({}));throw new Error(errData.error?.message||`API error ${response.status}`);}
-      const data=await response.json();
-      const text=(data.content||[]).map(b=>b.text||'').join('');
+      const data = await response.json();
+      const text = (data.content||[]).map(b=>b.text||'').join('');
       return parseJsonResponse(text);
-    }catch(err){
+    } catch(err) {
       currentAbortController = null;
-      if(err.name === 'AbortError') throw new Error('Request timed out after 30 seconds. Try again or fill in details manually.');
+      if(err.name === 'AbortError') throw new Error('Request timed out after 60 seconds. Try again or fill in details manually.');
       throw new Error('Anthropic API failed: '+err.message);
     }
   }
 
   async function llmExtractOpenAI(systemPrompt, userPrompt) {
-    try{
+    try {
       currentAbortController = new AbortController();
-      const timeoutId = setTimeout(() => currentAbortController?.abort(), 30000);
-      const response=await fetch("https://api.openai.com/v1/chat/completions",{
+      const timeoutId = setTimeout(() => currentAbortController?.abort(), 60000);
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
         method:"POST",
         headers:{"Content-Type":"application/json","Authorization":"Bearer "+apiConfig.apiKey},
         signal: currentAbortController.signal,
-        body:JSON.stringify({model:"gpt-4o-mini",max_tokens:1000,messages:[{role:"system",content:systemPrompt},{role:"user",content:userPrompt}]})
+        body: JSON.stringify({model:"gpt-4o-mini",max_tokens:2000,messages:[{role:"system",content:systemPrompt},{role:"user",content:userPrompt}]})
       });
       clearTimeout(timeoutId);
       currentAbortController = null;
       if(!response.ok){const errData=await response.json().catch(()=>({}));throw new Error(errData.error?.message||`API error ${response.status}`);}
-      const data=await response.json();
-      const text=data.choices?.[0]?.message?.content||'';
+      const data = await response.json();
+      const text = data.choices?.[0]?.message?.content||'';
       return parseJsonResponse(text);
-    }catch(err){
+    } catch(err) {
       currentAbortController = null;
-      if(err.name === 'AbortError') throw new Error('Request timed out after 30 seconds. Try again or fill in details manually.');
+      if(err.name === 'AbortError') throw new Error('Request timed out after 60 seconds. Try again or fill in details manually.');
       throw new Error('OpenAI API failed: '+err.message);
     }
   }
 
   function parseJsonResponse(text) {
-    const clean=text.replace(/```json|```/g,'').trim();
-    try{return JSON.parse(clean);}catch{const match=clean.match(/\{[\s\S]*\}/);if(match)return JSON.parse(match[0]);throw new Error('Could not parse AI response');}
+    let clean = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+    try { return JSON.parse(clean); } catch(e) { /* continue */ }
+    const match = clean.match(/\{[\s\S]*\}/);
+    if (match) {
+      try { return JSON.parse(match[0]); } catch(e2) { /* continue */ }
+      let fixed = match[0];
+      fixed = fixed.replace(/,\s*([\]}])/g, '$1');
+      fixed = fixed.replace(/[\x00-\x1F\x7F]/g, m => m === '\n' || m === '\t' ? m : '');
+      try { return JSON.parse(fixed); } catch(e3) { /* continue */ }
+    }
+    throw new Error('Could not parse AI response as JSON. First 300 chars: ' + text.substring(0, 300));
   }
 
   function applyExtraction(nodeId) {
