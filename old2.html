@@ -1,0 +1,1559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>KYB Workspace — Phase 3</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@300;400;500;600;700&family=Geist:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <style>
+    :root {
+      --bg:#080b0f;--surface:#0e1117;--surf2:#141922;--surf3:#1a212e;--surf4:#212b3b;
+      --bdr:#1f2836;--bdr-mid:#2a3547;--bdr-hi:#3a4d66;
+      --txt:#d4dbe8;--txt-dim:#5d6e85;--txt-mute:#3a4759;
+      --accent:#3b82f6;--acc2:#1e40af;--acc-glow:rgba(59,130,246,.18);--acc-soft:rgba(59,130,246,.08);
+      --green:#22c55e;--grn-dim:#166534;--grn-glow:rgba(34,197,94,.12);--grn-bg:rgba(34,197,94,.08);--grn-bdr:rgba(34,197,94,.28);
+      --red:#ef4444;--red-bg:rgba(239,68,68,.08);--red-bdr:rgba(239,68,68,.28);
+      --amber:#f59e0b;--amb-bg:rgba(245,158,11,.08);--amb-bdr:rgba(245,158,11,.28);
+      --purple:#a78bfa;--purp-bg:rgba(167,139,250,.08);--purp-bdr:rgba(167,139,250,.25);
+      --cyan:#22d3ee;--cyan-bg:rgba(34,211,238,.08);--cyan-bdr:rgba(34,211,238,.25);
+      --sidebar-w:290px;--header-h:52px;
+      --fm:'Geist Mono','Courier New',monospace;--fs:'Geist',system-ui,sans-serif;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    html,body{height:100%;overflow:hidden;}
+    body{background:var(--bg);color:var(--txt);font-family:var(--fs);font-size:13px;line-height:1.5;display:flex;flex-direction:column;}
+
+    header{height:var(--header-h);background:var(--surface);border-bottom:1px solid var(--bdr-mid);display:flex;align-items:center;padding:0 20px;gap:14px;flex-shrink:0;z-index:50;}
+    .h-pill{background:var(--surf3);border:1px solid var(--bdr-hi);color:var(--cyan);font-family:var(--fm);font-size:9px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;padding:3px 8px;border-radius:3px;}
+    .h-title{font-family:var(--fm);font-size:13px;font-weight:500;color:var(--txt);}
+    .h-sep{width:1px;height:20px;background:var(--bdr-mid);flex-shrink:0;}
+    .h-meta{font-family:var(--fm);font-size:10px;color:var(--txt-mute);letter-spacing:.04em;}
+    .h-spacer{flex:1;}
+
+    .app-layout{flex:1;display:flex;overflow:hidden;}
+
+    .sidebar{width:var(--sidebar-w);flex-shrink:0;background:var(--surface);border-right:1px solid var(--bdr-mid);display:flex;flex-direction:column;overflow:hidden;}
+    .sb-header{padding:16px 16px 12px;border-bottom:1px solid var(--bdr);flex-shrink:0;}
+    .sb-eyebrow{font-family:var(--fm);font-size:9px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--txt-mute);margin-bottom:8px;}
+    .sb-stats{display:flex;gap:12px;}
+    .sb-stat{display:flex;align-items:center;gap:5px;}
+    .sb-stat-dot{width:6px;height:6px;border-radius:50%;}
+    .sb-stat-dot--ent{background:var(--accent);}
+    .sb-stat-dot--ind{background:var(--green);}
+    .sb-stat-val{font-family:var(--fm);font-size:10px;color:var(--txt-dim);}
+    .sb-tree{flex:1;overflow-y:auto;padding:10px 0;}
+    .sb-tree::-webkit-scrollbar{width:4px;}
+    .sb-tree::-webkit-scrollbar-thumb{background:var(--bdr-mid);border-radius:4px;}
+
+    .sb-node{display:flex;align-items:center;gap:8px;padding:8px 14px 8px calc(14px + var(--indent,0px));cursor:pointer;transition:background .12s;position:relative;border-left:2px solid transparent;}
+    .sb-node:hover{background:var(--surf2);}
+    .sb-node.active{background:var(--surf3);border-left-color:var(--accent);}
+    .sb-node[data-depth="0"]::before{display:none;}
+    .sb-node::before{content:'';position:absolute;left:calc(var(--indent,0px) + 6px);top:0;bottom:50%;width:1px;background:var(--bdr);}
+    .sb-status{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:9px;font-weight:700;}
+    .sb-status--complete{border:1.5px solid var(--green);color:var(--green);}
+    .sb-status--progress{border:1.5px solid var(--amber);color:var(--amber);}
+    .sb-status--attention{border:1.5px solid var(--red);color:var(--red);animation:pulse-red 2s ease infinite;}
+    .sb-status--empty{border:1.5px solid var(--bdr-mid);color:var(--txt-mute);}
+    .sb-status--cb{border:1px dashed var(--bdr-mid);color:var(--txt-mute);font-size:8px;}
+    @keyframes pulse-red{0%,100%{box-shadow:none}50%{box-shadow:0 0 0 3px var(--red-bg);}}
+    .sb-node-info{flex:1;min-width:0;}
+    .sb-node-label{font-family:var(--fm);font-size:11px;font-weight:500;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .sb-node.active .sb-node-label{color:#fff;}
+    .sb-node-meta{font-family:var(--fm);font-size:9px;color:var(--txt-mute);display:flex;gap:6px;}
+    .sb-node-pct{font-family:var(--fm);font-size:9px;font-weight:600;color:var(--txt-dim);flex-shrink:0;}
+    .sb-node--cb{opacity:.45;}
+    .sb-node--cb .sb-node-label{font-style:italic;}
+
+    .sb-next-action{margin:0;padding:12px 14px;border-top:1px solid var(--bdr);flex-shrink:0;background:var(--surf2);}
+    .sb-na-eyebrow{font-family:var(--fm);font-size:8px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--txt-mute);margin-bottom:6px;}
+    .sb-na-text{font-family:var(--fm);font-size:10px;color:var(--txt-dim);line-height:1.65;}
+    .sb-na-text strong{color:var(--txt);font-weight:500;}
+    .sb-na-btn{margin-top:8px;display:inline-flex;align-items:center;gap:5px;padding:5px 12px;background:var(--acc-soft);border:1px solid rgba(59,130,246,.2);border-radius:5px;color:var(--accent);font-family:var(--fm);font-size:10px;font-weight:500;cursor:pointer;transition:all .15s;}
+    .sb-na-btn:hover{background:rgba(59,130,246,.15);border-color:var(--accent);}
+
+    .sb-progress{padding:10px 14px;border-top:1px solid var(--bdr);flex-shrink:0;}
+    .sb-prog-bar{height:3px;background:var(--bdr-mid);border-radius:2px;overflow:hidden;margin-bottom:4px;}
+    .sb-prog-fill{height:100%;border-radius:2px;background:var(--accent);transition:width .3s;}
+    .sb-prog-label{font-family:var(--fm);font-size:9px;color:var(--txt-mute);}
+
+    .main-content{flex:1;overflow-y:auto;overflow-x:hidden;background:var(--bg);background-image:radial-gradient(circle at 20% 20%,rgba(59,130,246,.02) 0%,transparent 50%),radial-gradient(circle at 80% 80%,rgba(34,197,94,.015) 0%,transparent 50%);}
+    .main-content::-webkit-scrollbar{width:5px;}
+    .main-content::-webkit-scrollbar-thumb{background:var(--bdr-mid);border-radius:10px;}
+
+    .page-hdr{padding:32px 40px 24px;border-bottom:1px solid var(--bdr);background:var(--surface);}
+    .page-breadcrumb{font-family:var(--fm);font-size:9px;color:var(--txt-mute);letter-spacing:.06em;margin-bottom:10px;}
+    .page-title-row{display:flex;align-items:center;gap:14px;}
+    .page-type-badge{padding:3px 10px;border-radius:4px;font-family:var(--fm);font-size:9px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;}
+    .page-type-badge--root{background:var(--acc-soft);color:var(--accent);border:1px solid rgba(59,130,246,.25);}
+    .page-type-badge--entity{background:var(--acc-soft);color:var(--accent);border:1px solid rgba(59,130,246,.25);}
+    .page-type-badge--individual{background:var(--grn-glow);color:var(--green);border:1px solid rgba(34,197,94,.25);}
+    .page-title{font-family:var(--fm);font-size:18px;font-weight:600;color:var(--txt);}
+    .page-subtitle{font-family:var(--fm);font-size:11px;color:var(--txt-dim);margin-top:6px;}
+
+    .step{margin:24px 40px;padding:0;background:var(--surf2);border:1px solid var(--bdr);border-radius:10px;overflow:hidden;transition:opacity .2s;}
+    .step.locked{opacity:.4;pointer-events:none;}
+    .step-header{display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid var(--bdr);background:var(--surf3);}
+    .step-num{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--fm);font-size:10px;font-weight:700;flex-shrink:0;}
+    .step-num--todo{background:var(--bdr-mid);color:var(--txt-mute);}
+    .step-num--active{background:var(--acc-soft);color:var(--accent);border:1px solid rgba(59,130,246,.3);}
+    .step-num--done{background:var(--grn-glow);color:var(--green);border:1px solid rgba(34,197,94,.25);}
+    .step-num--warn{background:var(--red-bg);color:var(--red);border:1px solid var(--red-bdr);}
+    .step-num--locked{background:var(--bdr);color:var(--txt-mute);}
+    .step-num--processing{background:var(--cyan-bg);color:var(--cyan);border:1px solid var(--cyan-bdr);animation:pulse-cyan 1.5s ease infinite;}
+    @keyframes pulse-cyan{0%,100%{box-shadow:none}50%{box-shadow:0 0 0 3px var(--cyan-bg);}}
+    .step-title{font-family:var(--fm);font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--txt-dim);}
+    .step-title-main{color:var(--txt);}
+    .step-line{flex:1;height:1px;background:var(--bdr);}
+    .step-badge{font-family:var(--fm);font-size:8px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;padding:2px 8px;border-radius:10px;}
+    .step-badge--count{background:var(--acc-soft);color:var(--accent);border:1px solid rgba(59,130,246,.25);}
+    .step-badge--live{background:var(--cyan-bg);color:var(--cyan);border:1px solid var(--cyan-bdr);}
+    .step-badge--docs{background:var(--grn-bg);color:var(--green);border:1px solid var(--grn-bdr);}
+    .step-body{padding:20px;}
+    .save-flash{display:inline-flex;align-items:center;gap:5px;font-family:var(--fm);font-size:9px;color:var(--green);opacity:0;transition:opacity .3s;margin-left:auto;}
+    .save-flash.show{opacity:1;}
+
+    .drop-zone{border:2px dashed var(--bdr-mid);border-radius:8px;padding:32px 20px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;cursor:pointer;transition:all .2s;background:transparent;position:relative;}
+    .drop-zone:hover,.drop-zone.dragover{border-color:var(--accent);background:var(--acc-soft);}
+    .drop-zone-icon{font-size:28px;opacity:.3;transition:opacity .2s;}
+    .drop-zone:hover .drop-zone-icon{opacity:.5;}
+    .drop-zone-text{font-family:var(--fm);font-size:11px;color:var(--txt-dim);text-align:center;line-height:1.7;}
+    .drop-zone-text strong{color:var(--accent);font-weight:500;}
+    .drop-zone-hint{font-family:var(--fm);font-size:9px;color:var(--txt-mute);}
+    .drop-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;}
+
+    .doc-list{display:flex;flex-direction:column;gap:8px;margin-top:14px;}
+    .doc-item{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surf3);border:1px solid var(--bdr);border-radius:7px;transition:all .15s;}
+    .doc-item:hover{border-color:var(--bdr-hi);}
+    .doc-icon{width:32px;height:32px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;}
+    .doc-icon--pdf{background:rgba(239,68,68,.1);color:var(--red);}
+    .doc-icon--img{background:rgba(59,130,246,.1);color:var(--accent);}
+    .doc-info{flex:1;min-width:0;}
+    .doc-name{font-family:var(--fm);font-size:11px;font-weight:500;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .doc-meta{font-family:var(--fm);font-size:9px;color:var(--txt-mute);display:flex;gap:8px;}
+    .doc-remove{width:24px;height:24px;border-radius:4px;border:1px solid transparent;background:transparent;color:var(--txt-mute);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;transition:all .15s;}
+    .doc-remove:hover{border-color:var(--red-bdr);color:var(--red);background:var(--red-bg);}
+
+    .extract-pipeline{display:flex;flex-direction:column;gap:2px;}
+    .extract-stage{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:6px;background:var(--surf3);border:1px solid var(--bdr);transition:all .3s;}
+    .extract-stage.active{border-color:var(--cyan-bdr);background:var(--cyan-bg);}
+    .extract-stage.done{border-color:var(--grn-bdr);background:var(--grn-bg);}
+    .extract-stage.error{border-color:var(--red-bdr);background:var(--red-bg);}
+    .extract-stage-icon{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0;}
+    .extract-stage-icon--wait{border:1.5px solid var(--bdr-mid);color:var(--txt-mute);}
+    .extract-stage-icon--active{border:1.5px solid var(--cyan);color:var(--cyan);animation:pulse-cyan 1.5s ease infinite;}
+    .extract-stage-icon--done{border:1.5px solid var(--green);color:var(--green);}
+    .extract-stage-icon--error{border:1.5px solid var(--red);color:var(--red);}
+    .extract-stage-info{flex:1;}
+    .extract-stage-label{font-family:var(--fm);font-size:10px;font-weight:600;color:var(--txt);}
+    .extract-stage-desc{font-family:var(--fm);font-size:9px;color:var(--txt-mute);}
+    .extract-stage.active .extract-stage-label{color:var(--cyan);}
+    .extract-stage.done .extract-stage-label{color:var(--green);}
+    .extract-stage.error .extract-stage-label{color:var(--red);}
+
+    .spinner{width:14px;height:14px;border:2px solid var(--bdr-mid);border-top-color:var(--cyan);border-radius:50%;animation:spin .6s linear infinite;flex-shrink:0;}
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    .review-form{margin-top:16px;padding:16px;background:var(--surf3);border:1px solid var(--bdr);border-radius:8px;}
+    .review-form-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+    .review-form-title{font-family:var(--fm);font-size:11px;font-weight:600;color:var(--cyan);display:flex;align-items:center;gap:6px;}
+    .review-form-hint{font-family:var(--fm);font-size:9px;color:var(--txt-mute);}
+    .review-actions{display:flex;gap:8px;margin-top:16px;justify-content:flex-end;}
+    .review-field-changed{position:relative;}
+    .review-field-changed::after{content:'AI';position:absolute;top:22px;right:8px;font-family:var(--fm);font-size:7px;font-weight:700;color:var(--cyan);background:var(--cyan-bg);border:1px solid var(--cyan-bdr);padding:1px 4px;border-radius:3px;letter-spacing:.06em;pointer-events:none;z-index:1;}
+    .review-field-changed .inp,.review-field-changed .sel,.review-field-changed .ta{border-color:var(--cyan-bdr);background:rgba(34,211,238,.04);}
+    .ocr-raw-toggle{margin-top:12px;}
+    .ocr-raw-toggle summary{font-family:var(--fm);font-size:9px;color:var(--txt-mute);cursor:pointer;letter-spacing:.06em;}
+    .ocr-raw-toggle summary:hover{color:var(--txt-dim);}
+    .ocr-raw-text{margin-top:8px;padding:12px;background:var(--bg);border:1px solid var(--bdr);border-radius:6px;font-family:var(--fm);font-size:10px;color:var(--txt-dim);line-height:1.7;max-height:200px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;}
+
+    .mat-banner{margin-bottom:16px;padding:12px 16px;border-radius:7px;display:flex;align-items:flex-start;gap:12px;}
+    .mat-banner--red{background:var(--red-bg);border:1px solid var(--red-bdr);}
+    .mat-banner--amber{background:var(--amb-bg);border:1px solid var(--amb-bdr);}
+    .mat-banner--green{background:var(--grn-bg);border:1px solid var(--grn-bdr);}
+    .mat-icon{font-size:16px;flex-shrink:0;margin-top:1px;}
+    .mat-body{flex:1;}
+    .mat-title{font-family:var(--fm);font-size:11px;font-weight:600;margin-bottom:2px;}
+    .mat-banner--red .mat-title{color:var(--red);}
+    .mat-banner--amber .mat-title{color:var(--amber);}
+    .mat-banner--green .mat-title{color:var(--green);}
+    .mat-desc{font-family:var(--fm);font-size:10px;line-height:1.65;letter-spacing:.02em;}
+    .mat-banner--red .mat-desc{color:var(--red);opacity:.85;}
+    .mat-banner--amber .mat-desc{color:var(--amber);opacity:.85;}
+    .mat-banner--green .mat-desc{color:var(--green);opacity:.85;}
+
+    .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+    .fg-full{grid-column:1/-1;}
+    .fg{display:flex;flex-direction:column;gap:5px;}
+    .fl{font-family:var(--fm);font-size:9px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--txt-dim);}
+    .fl-opt{color:var(--txt-mute);font-weight:400;text-transform:none;letter-spacing:.03em;}
+    .inp,.sel,.ta{padding:8px 11px;background:var(--surf3);border:1px solid var(--bdr-mid);border-radius:5px;color:var(--txt);font-family:var(--fm);font-size:12px;outline:none;transition:border-color .15s,box-shadow .15s;width:100%;}
+    .inp,.sel{height:36px;}
+    .ta{min-height:72px;resize:vertical;line-height:1.6;}
+    .inp:focus,.sel:focus,.ta:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--acc-glow);}
+    .inp::placeholder,.ta::placeholder{color:var(--txt-mute);}
+    .sel{appearance:none;-webkit-appearance:none;cursor:pointer;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%235d6e85'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:28px;}
+    input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;}
+    input[type=number]{-moz-appearance:textfield;}
+
+    .own-display{display:flex;align-items:center;gap:20px;padding:14px 18px;background:var(--surf3);border:1px solid var(--bdr);border-radius:7px;}
+    .own-pct-big{font-family:var(--fm);font-size:28px;font-weight:300;color:var(--accent);}
+    .own-pct-big--green{color:var(--green);}
+    .own-details{display:flex;flex-direction:column;gap:3px;}
+    .own-detail-row{font-family:var(--fm);font-size:10px;color:var(--txt-dim);display:flex;gap:6px;}
+    .own-detail-row strong{color:var(--txt);font-weight:500;}
+    .own-chain{margin-top:12px;padding:10px 14px;background:var(--surf3);border:1px solid var(--bdr);border-radius:6px;}
+    .own-chain-label{font-family:var(--fm);font-size:9px;color:var(--txt-mute);letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px;}
+    .own-chain-path{font-family:var(--fm);font-size:10px;color:var(--txt-dim);line-height:1.8;}
+    .own-chain-path .chain-arrow{color:var(--txt-mute);margin:0 4px;}
+
+    .sh-table{width:100%;border-collapse:collapse;}
+    .sh-table th{font-family:var(--fm);font-size:9px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--txt-mute);text-align:left;padding:6px 10px;border-bottom:1px solid var(--bdr);}
+    .sh-table td{padding:8px 10px;border-bottom:1px solid var(--bdr);font-family:var(--fm);font-size:11px;color:var(--txt);vertical-align:middle;}
+    .sh-table tr:last-child td{border-bottom:none;}
+    .sh-table tr:hover td{background:var(--surf3);}
+    .sh-type-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:middle;}
+    .sh-type-dot--entity{background:var(--accent);}
+    .sh-type-dot--individual{background:var(--green);}
+    .sh-type-dot--cb{background:var(--txt-mute);}
+    .sh-nav-link{color:var(--accent);cursor:pointer;text-decoration:none;font-weight:500;}
+    .sh-nav-link:hover{text-decoration:underline;}
+    .sh-pct{font-weight:600;}
+
+    .sh-add-area{margin-top:16px;}
+    .sh-add-btn{display:flex;align-items:center;gap:8px;padding:10px 16px;background:transparent;border:1px dashed var(--bdr-mid);border-radius:7px;color:var(--txt-dim);font-family:var(--fm);font-size:11px;cursor:pointer;transition:all .15s;width:100%;}
+    .sh-add-btn:hover{border-color:var(--accent);color:var(--accent);background:var(--acc-soft);}
+    .sh-add-btn .plus{font-size:16px;font-weight:300;}
+    .sh-add-form{padding:16px;background:var(--surf3);border:1px solid var(--bdr-mid);border-radius:8px;display:none;}
+    .sh-add-form.open{display:block;}
+    .sh-add-form .form-grid{gap:12px;}
+    .sh-add-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px;}
+
+    .pct-summary{margin-top:12px;padding:8px 14px;background:var(--surf3);border:1px solid var(--bdr);border-radius:6px;display:flex;align-items:center;gap:10px;}
+    .pct-bar-wrap{flex:1;height:4px;background:var(--bdr-mid);border-radius:2px;overflow:hidden;}
+    .pct-bar-fill{height:100%;border-radius:2px;transition:width .25s,background .2s;}
+    .pct-bar-fill.ok{background:var(--accent);}
+    .pct-bar-fill.exact{background:var(--green);}
+    .pct-bar-fill.over{background:var(--red);}
+    .pct-bar-fill.near{background:var(--amber);}
+    .pct-label{font-family:var(--fm);font-size:10px;color:var(--txt-dim);min-width:60px;text-align:right;}
+    .pct-remainder{font-family:var(--fm);font-size:9px;color:var(--txt-mute);}
+
+    .empty-shareholders{padding:20px;text-align:center;font-family:var(--fm);font-size:11px;color:var(--txt-mute);}
+
+    .disclaimer{margin:24px 40px;padding:16px 20px;background:var(--amb-bg);border:1px solid var(--amb-bdr);border-radius:10px;display:flex;align-items:flex-start;gap:14px;}
+    .disc-icon{font-size:16px;flex-shrink:0;margin-top:2px;color:var(--amber);opacity:.8;}
+    .disc-body{flex:1;}
+    .disc-title{font-family:var(--fm);font-size:11px;font-weight:600;color:var(--amber);margin-bottom:4px;}
+    .disc-text{font-family:var(--fm);font-size:10px;color:var(--amber);opacity:.85;line-height:1.7;letter-spacing:.02em;}
+    .disc-text strong{font-weight:600;opacity:1;}
+
+    .btn{height:32px;padding:0 16px;border-radius:5px;font-family:var(--fm);font-size:11px;font-weight:500;letter-spacing:.06em;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all .15s;white-space:nowrap;border:1px solid transparent;}
+    .btn-ghost{background:transparent;border-color:var(--bdr-mid);color:var(--txt-dim);}
+    .btn-ghost:hover{background:var(--surf3);color:var(--txt);}
+    .btn-primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+    .btn-primary:hover{background:#2563eb;}
+    .btn-primary:active{transform:translateY(1px);}
+    .btn-sm{height:28px;padding:0 12px;font-size:10px;}
+    .btn-danger{background:transparent;border-color:var(--red-bdr);color:var(--red);}
+    .btn-danger:hover{background:var(--red-bg);}
+    .btn-cyan{background:var(--cyan-bg);border-color:var(--cyan-bdr);color:var(--cyan);}
+    .btn-cyan:hover{background:rgba(34,211,238,.15);border-color:var(--cyan);}
+    .btn-green{background:var(--grn-bg);border-color:var(--grn-bdr);color:var(--green);}
+    .btn-green:hover{background:rgba(34,197,94,.15);border-color:var(--green);}
+    .btn:disabled{opacity:.4;pointer-events:none;}
+
+    /* Config modal */
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:100;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s;}
+    .modal-overlay.open{opacity:1;pointer-events:all;}
+    .modal{width:480px;max-width:90vw;background:var(--surface);border:1px solid var(--bdr-hi);border-radius:12px;overflow:hidden;transform:translateY(10px);transition:transform .2s;}
+    .modal-overlay.open .modal{transform:translateY(0);}
+    .modal-header{padding:18px 20px;border-bottom:1px solid var(--bdr);display:flex;align-items:center;gap:10px;}
+    .modal-title{font-family:var(--fm);font-size:13px;font-weight:600;color:var(--txt);flex:1;}
+    .modal-close{width:28px;height:28px;border-radius:5px;border:1px solid var(--bdr-mid);background:transparent;color:var(--txt-mute);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;transition:all .15s;}
+    .modal-close:hover{border-color:var(--bdr-hi);color:var(--txt);}
+    .modal-body{padding:20px;}
+    .modal-section{margin-bottom:18px;}
+    .modal-section:last-child{margin-bottom:0;}
+    .modal-section-title{font-family:var(--fm);font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--txt-dim);margin-bottom:8px;}
+    .modal-hint{font-family:var(--fm);font-size:9px;color:var(--txt-mute);line-height:1.7;margin-top:6px;}
+    .modal-hint a{color:var(--accent);text-decoration:none;}
+    .modal-hint a:hover{text-decoration:underline;}
+    .provider-tabs{display:flex;gap:0;margin-bottom:12px;border:1px solid var(--bdr-mid);border-radius:6px;overflow:hidden;}
+    .provider-tab{flex:1;padding:8px;text-align:center;font-family:var(--fm);font-size:10px;font-weight:500;color:var(--txt-mute);background:var(--surf2);cursor:pointer;transition:all .15s;border:none;}
+    .provider-tab.active{background:var(--surf4);color:var(--txt);font-weight:600;}
+    .provider-tab:hover:not(.active){background:var(--surf3);}
+    .api-status{display:inline-flex;align-items:center;gap:5px;font-family:var(--fm);font-size:9px;padding:3px 8px;border-radius:4px;margin-top:8px;}
+    .api-status--ok{background:var(--grn-bg);color:var(--green);border:1px solid var(--grn-bdr);}
+    .api-status--none{background:var(--surf3);color:var(--txt-mute);border:1px solid var(--bdr);}
+    .modal-footer{padding:14px 20px;border-top:1px solid var(--bdr);display:flex;justify-content:flex-end;gap:8px;}
+
+    .btn-config{background:transparent;border-color:var(--bdr-mid);color:var(--txt-mute);position:relative;}
+    .btn-config:hover{background:var(--surf3);color:var(--txt);}
+    .btn-config .cfg-dot{position:absolute;top:4px;right:4px;width:6px;height:6px;border-radius:50%;background:var(--green);display:none;}
+    .btn-config.has-key .cfg-dot{display:block;}
+
+    /* Per-doc progress */
+    .ocr-doc-progress{display:flex;flex-direction:column;gap:6px;margin-bottom:12px;}
+    .ocr-doc-item{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:5px;background:var(--surf3);border:1px solid var(--bdr);}
+    .ocr-doc-item.processing{border-color:var(--cyan-bdr);background:var(--cyan-bg);}
+    .ocr-doc-item.done{border-color:var(--grn-bdr);background:var(--grn-bg);}
+    .ocr-doc-item.waiting{opacity:.5;}
+    .ocr-doc-name{font-family:var(--fm);font-size:10px;color:var(--txt-dim);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .ocr-doc-item.processing .ocr-doc-name{color:var(--cyan);}
+    .ocr-doc-item.done .ocr-doc-name{color:var(--green);}
+    .ocr-doc-status{font-family:var(--fm);font-size:9px;color:var(--txt-mute);flex-shrink:0;}
+    .ocr-doc-item.processing .ocr-doc-status{color:var(--cyan);}
+    .ocr-doc-item.done .ocr-doc-status{color:var(--green);}
+
+    /* LLM progress ring */
+    .llm-progress-wrap{position:relative;width:36px;height:36px;flex-shrink:0;}
+    .llm-progress-ring{transform:rotate(-90deg);}
+    .llm-progress-ring-bg{fill:none;stroke:var(--bdr-mid);stroke-width:3;}
+    .llm-progress-ring-fill{fill:none;stroke:var(--cyan);stroke-width:3;stroke-linecap:round;transition:stroke-dashoffset .5s ease;}
+    .llm-elapsed{font-family:var(--fm);font-size:9px;color:var(--txt-mute);margin-top:2px;}
+    .llm-cancel{margin-top:8px;}
+
+    /* Submit button */
+    .sb-submit{padding:10px 14px;border-top:1px solid var(--bdr);flex-shrink:0;}
+    .btn-submit{width:100%;height:36px;background:var(--green);border:none;border-radius:6px;color:#fff;font-family:var(--fm);font-size:11px;font-weight:600;letter-spacing:.06em;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:all .15s;}
+    .btn-submit:hover{background:#16a34a;transform:translateY(-1px);box-shadow:0 4px 12px rgba(34,197,94,.25);}
+    .btn-submit:active{transform:translateY(0);}
+    .btn-submit:disabled{opacity:.3;pointer-events:none;transform:none;box-shadow:none;}
+
+    /* Summary modal */
+    .summary-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);z-index:200;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .25s;}
+    .summary-overlay.open{opacity:1;pointer-events:all;}
+    .summary-modal{width:720px;max-width:92vw;max-height:88vh;background:var(--surface);border:1px solid var(--bdr-hi);border-radius:14px;display:flex;flex-direction:column;overflow:hidden;transform:translateY(12px);transition:transform .25s;}
+    .summary-overlay.open .summary-modal{transform:translateY(0);}
+    .summary-modal-header{padding:20px 24px;border-bottom:1px solid var(--bdr);display:flex;align-items:center;gap:12px;flex-shrink:0;}
+    .summary-modal-title{font-family:var(--fm);font-size:15px;font-weight:600;color:var(--txt);flex:1;}
+    .summary-modal-body{flex:1;overflow-y:auto;padding:24px;}
+    .summary-modal-body::-webkit-scrollbar{width:5px;}
+    .summary-modal-body::-webkit-scrollbar-thumb{background:var(--bdr-mid);border-radius:10px;}
+    .summary-modal-footer{padding:16px 24px;border-top:1px solid var(--bdr);display:flex;align-items:center;gap:10px;flex-shrink:0;}
+
+    .summary-section{margin-bottom:24px;}
+    .summary-section:last-child{margin-bottom:0;}
+    .summary-section-title{font-family:var(--fm);font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--txt-mute);margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--bdr);}
+    .summary-card{padding:14px 16px;background:var(--surf2);border:1px solid var(--bdr);border-radius:8px;margin-bottom:10px;}
+    .summary-card:last-child{margin-bottom:0;}
+    .summary-card-header{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+    .summary-card-badge{padding:2px 8px;border-radius:3px;font-family:var(--fm);font-size:8px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;}
+    .summary-card-badge--entity{background:var(--acc-soft);color:var(--accent);border:1px solid rgba(59,130,246,.25);}
+    .summary-card-badge--individual{background:var(--grn-bg);color:var(--green);border:1px solid var(--grn-bdr);}
+    .summary-card-badge--root{background:var(--acc-soft);color:var(--accent);border:1px solid rgba(59,130,246,.25);}
+    .summary-card-name{font-family:var(--fm);font-size:13px;font-weight:600;color:var(--txt);}
+    .summary-card-meta{font-family:var(--fm);font-size:9px;color:var(--txt-mute);}
+    .summary-fields{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;}
+    .summary-field{display:flex;flex-direction:column;gap:1px;}
+    .summary-field-label{font-family:var(--fm);font-size:8px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--txt-mute);}
+    .summary-field-value{font-family:var(--fm);font-size:11px;color:var(--txt);}
+    .summary-field-value.empty{color:var(--txt-mute);font-style:italic;}
+    .summary-field--full{grid-column:1/-1;}
+
+    .summary-tree{padding:14px 16px;background:var(--surf2);border:1px solid var(--bdr);border-radius:8px;}
+    .summary-tree-node{display:flex;align-items:center;gap:8px;padding:4px 0 4px calc(var(--s-indent,0) * 20px);font-family:var(--fm);font-size:11px;}
+    .summary-tree-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+    .summary-tree-dot--entity{background:var(--accent);}
+    .summary-tree-dot--individual{background:var(--green);}
+    .summary-tree-dot--cb{background:var(--txt-mute);}
+    .summary-tree-name{color:var(--txt);font-weight:500;}
+    .summary-tree-pct{color:var(--txt-dim);font-size:10px;margin-left:auto;}
+
+    .json-preview{margin-top:16px;padding:14px;background:var(--bg);border:1px solid var(--bdr);border-radius:8px;font-family:var(--fm);font-size:10px;color:var(--txt-dim);line-height:1.6;max-height:240px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;}
+
+    .btn-download{background:var(--green);border:none;color:#fff;height:36px;padding:0 20px;border-radius:6px;font-family:var(--fm);font-size:11px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all .15s;}
+    .btn-download:hover{background:#16a34a;}
+
+    .page-bottom-spacer{height:60px;}
+    ::-webkit-scrollbar{width:5px;height:5px;}
+    ::-webkit-scrollbar-track{background:transparent;}
+    ::-webkit-scrollbar-thumb{background:var(--bdr-mid);border-radius:10px;}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+    .fade-in{animation:fadeIn .3s ease forwards;}
+  </style>
+</head>
+<body>
+
+<header>
+  <span class="h-pill">Phase 3 · Document-Driven</span>
+  <div class="h-sep"></div>
+  <span class="h-title">KYB Onboarding</span>
+  <div class="h-sep"></div>
+  <span class="h-meta">Upload → Extract → Review → Confirm</span>
+  <div class="h-spacer"></div>
+  <button class="btn btn-ghost btn-sm btn-config" id="btn-config" title="API Configuration">⚙ API Config<span class="cfg-dot"></span></button>
+  <button class="btn btn-ghost btn-sm" id="btn-reset" title="Reset all data">↺ Reset</button>
+</header>
+
+<!-- API Config Modal -->
+<div class="modal-overlay" id="config-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">⚙ AI Extraction — API Configuration</span>
+      <button class="modal-close" id="config-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-section">
+        <div class="modal-section-title">LLM Provider</div>
+        <div class="provider-tabs">
+          <button class="provider-tab active" data-provider="anthropic">Anthropic (Claude)</button>
+          <button class="provider-tab" data-provider="openai">OpenAI (GPT)</button>
+        </div>
+      </div>
+      <div class="modal-section">
+        <div class="modal-section-title" id="cfg-key-label">Anthropic API Key</div>
+        <input class="inp" id="cfg-api-key" type="password" placeholder="sk-ant-…" autocomplete="off" style="font-size:11px;"/>
+        <div class="modal-hint" id="cfg-key-hint">Get your key at <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a>. Your key stays in this browser only — never sent anywhere except the API.</div>
+        <div id="cfg-status"></div>
+      </div>
+      <div class="modal-section" style="padding:10px 14px;background:var(--surf2);border-radius:7px;border:1px solid var(--bdr);">
+        <div style="font-family:var(--fm);font-size:10px;color:var(--txt-dim);line-height:1.7;">
+          <strong style="color:var(--txt);">How it works:</strong> OCR runs entirely in your browser (free, no key needed). The API key is only used for the AI structuring step, which sends the extracted text to the LLM to identify and organize fields. Without a key, you can still use OCR and fill fields manually.
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost btn-sm" id="cfg-clear">Clear Key</button>
+      <button class="btn btn-primary btn-sm" id="cfg-save">Save Configuration</button>
+    </div>
+  </div>
+</div>
+
+<div class="app-layout">
+  <aside class="sidebar">
+    <div class="sb-header">
+      <div class="sb-eyebrow">Ownership Layers</div>
+      <div class="sb-stats">
+        <div class="sb-stat"><div class="sb-stat-dot sb-stat-dot--ent"></div><span class="sb-stat-val" id="stat-entities">1 entity</span></div>
+        <div class="sb-stat"><div class="sb-stat-dot sb-stat-dot--ind"></div><span class="sb-stat-val" id="stat-individuals">0 individuals</span></div>
+      </div>
+    </div>
+    <div class="sb-tree" id="sb-tree"></div>
+    <div class="sb-progress" id="sb-progress">
+      <div class="sb-prog-bar"><div class="sb-prog-fill" id="sb-prog-fill"></div></div>
+      <span class="sb-prog-label" id="sb-prog-label">0% complete</span>
+    </div>
+    <div class="sb-next-action" id="sb-next-action"></div>
+    <div class="sb-submit" id="sb-submit"><button class="btn-submit" id="btn-submit" disabled>Submit & Generate Report</button></div>
+  </aside>
+  <div class="main-content" id="main-content"></div>
+</div>
+
+<!-- Summary Modal -->
+<div class="summary-overlay" id="summary-modal">
+  <div class="summary-modal">
+    <div class="summary-modal-header">
+      <span class="summary-modal-title">KYB Submission Summary</span>
+      <button class="modal-close" id="summary-close">✕</button>
+    </div>
+    <div class="summary-modal-body" id="summary-body"></div>
+    <div class="summary-modal-footer">
+      <span style="font-family:var(--fm);font-size:9px;color:var(--txt-mute);flex:1;">Generated on <span id="summary-date"></span></span>
+      <button class="btn btn-ghost btn-sm" id="btn-copy-json">Copy JSON</button>
+      <button class="btn-download" id="btn-download-json">↓ Download JSON</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  if (window.pdfjsLib) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+
+  const THRESH_UBO = 25, THRESH_SIG = 15;
+  let layers = {}, activeLayerId = 'root', addFormOpen = {}, idCounter = 0;
+  let docStore = {}, extractState = {};
+
+  // API configuration
+  let apiConfig = { provider: 'anthropic', apiKey: '' };
+  // Try to load saved config
+  try { const saved = JSON.parse(localStorage.getItem('kyb_api_config')); if (saved) apiConfig = saved; } catch(e) {}
+
+  function hasApiKey() { return !!(apiConfig.apiKey && apiConfig.apiKey.trim()); }
+  function updateConfigButton() {
+    const btn = document.getElementById('btn-config');
+    if (btn) { if (hasApiKey()) btn.classList.add('has-key'); else btn.classList.remove('has-key'); }
+  }
+
+  // Config modal logic
+  (function wireConfigModal() {
+    const modal = document.getElementById('config-modal');
+    const btnOpen = document.getElementById('btn-config');
+    const btnClose = document.getElementById('config-close');
+    const btnSave = document.getElementById('cfg-save');
+    const btnClear = document.getElementById('cfg-clear');
+    const keyInput = document.getElementById('cfg-api-key');
+    const keyLabel = document.getElementById('cfg-key-label');
+    const keyHint = document.getElementById('cfg-key-hint');
+    const statusEl = document.getElementById('cfg-status');
+    const tabs = modal.querySelectorAll('.provider-tab');
+
+    function openModal() { modal.classList.add('open'); keyInput.value = apiConfig.apiKey || ''; updateTabs(); updateStatus(); }
+    function closeModal() { modal.classList.remove('open'); }
+    function updateTabs() {
+      tabs.forEach(t => t.classList.toggle('active', t.dataset.provider === apiConfig.provider));
+      if (apiConfig.provider === 'openai') {
+        keyLabel.textContent = 'OpenAI API Key';
+        keyInput.placeholder = 'sk-…';
+        keyHint.innerHTML = 'Get your key at <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com</a>. Your key stays in this browser only.';
+      } else {
+        keyLabel.textContent = 'Anthropic API Key';
+        keyInput.placeholder = 'sk-ant-…';
+        keyHint.innerHTML = 'Get your key at <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a>. Your key stays in this browser only.';
+      }
+    }
+    function updateStatus() {
+      if (hasApiKey()) statusEl.innerHTML = '<div class="api-status api-status--ok">✓ Key configured — ' + apiConfig.provider + '</div>';
+      else statusEl.innerHTML = '<div class="api-status api-status--none">○ No key set — AI extraction disabled</div>';
+    }
+
+    btnOpen.addEventListener('click', openModal);
+    btnClose.addEventListener('click', closeModal);
+    modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+    tabs.forEach(t => t.addEventListener('click', () => { apiConfig.provider = t.dataset.provider; updateTabs(); }));
+    btnSave.addEventListener('click', () => {
+      apiConfig.apiKey = keyInput.value.trim();
+      try { localStorage.setItem('kyb_api_config', JSON.stringify(apiConfig)); } catch(e) {}
+      updateConfigButton(); updateStatus(); closeModal(); render();
+    });
+    btnClear.addEventListener('click', () => {
+      apiConfig.apiKey = ''; keyInput.value = '';
+      try { localStorage.removeItem('kyb_api_config'); } catch(e) {}
+      updateConfigButton(); updateStatus();
+    });
+    updateConfigButton();
+  })();
+
+  function initState() {
+    layers = { root: { id:'root', type:'Root', label:'Applicant Company', parentId:null, layer:0, ownPct:100, effPct:100, children:[], data:{ legalName:'', tradeName:'', regNumber:'', jurisdiction:'', incorporationDate:'', entityType:'', address:'', controllers:'', notes:'' } } };
+    activeLayerId = 'root'; addFormOpen = {}; idCounter = 0; docStore = {}; extractState = {};
+  }
+  initState();
+
+  const sbTree = document.getElementById('sb-tree');
+  const mainContent = document.getElementById('main-content');
+  const statEntities = document.getElementById('stat-entities');
+  const statIndividuals = document.getElementById('stat-individuals');
+  const sbProgFill = document.getElementById('sb-prog-fill');
+  const sbProgLabel = document.getElementById('sb-prog-label');
+  const sbNextAction = document.getElementById('sb-next-action');
+
+  function getNodeStatus(n) {
+    if (n.type === 'CollectiveBottom') return 'cb';
+    const hasName = n.type === 'Individual' ? !!(n.data.fullName?.trim()) : !!(n.data.legalName?.trim());
+    if (n.type === 'Individual') return hasName ? 'complete' : 'empty';
+    if (n.children.length === 0) return hasName ? 'progress' : 'empty';
+    const mat = getMateriality(n);
+    if (mat.level === 'red') return 'attention';
+    const entityKids = n.children.map(cid => layers[cid]).filter(c => c && c.type === 'Entity');
+    const allKidsOk = entityKids.every(c => getNodeStatus(c) !== 'attention' && getNodeStatus(c) !== 'empty');
+    if (mat.level === 'green' && hasName && allKidsOk) return 'complete';
+    return 'progress';
+  }
+
+  function getMateriality(n) {
+    if (n.type === 'Individual' || n.type === 'CollectiveBottom') return { level:'na', unalloc:0 };
+    const nonCB = n.children.map(cid => layers[cid]).filter(c => c && c.type !== 'CollectiveBottom');
+    if (nonCB.length === 0 && n.children.length === 0) return { level:'empty', unalloc:100 };
+    const allocated = round2(nonCB.reduce((s,c) => s + c.ownPct, 0));
+    const unalloc = round2(100 - allocated);
+    if (unalloc >= THRESH_UBO) return { level:'red', unalloc };
+    if (unalloc >= THRESH_SIG) return { level:'amber', unalloc };
+    return { level:'green', unalloc };
+  }
+
+  function computeNextAction() {
+    const all = Object.values(layers).filter(n => n.type !== 'CollectiveBottom');
+    const root = layers.root;
+    if (root.children.length === 0) return { text:'Start by adding shareholders to <strong>'+esc(getName(root))+'</strong>.', targetId:'root' };
+    for (const n of all) {
+      if ((n.type==='Root'||n.type==='Entity') && getNodeStatus(n)==='attention') {
+        const mat = getMateriality(n);
+        return { text:'<strong>'+esc(getName(n))+'</strong> has '+mat.unalloc.toFixed(1)+'% unaccounted ownership. Add remaining shareholders.', targetId:n.id };
+      }
+    }
+    for (const n of all) { if (n.type==='Entity' && n.children.length===0) return { text:'<strong>'+esc(getName(n))+'</strong> needs its shareholders documented.', targetId:n.id }; }
+    for (const n of all) {
+      const hasName = n.type==='Individual' ? !!(n.data.fullName?.trim()) : !!(n.data.legalName?.trim());
+      if (!hasName && n.type!=='Root') return { text:'Complete details for <strong>'+esc(getName(n))+'</strong>.', targetId:n.id };
+    }
+    return { text:'All layers complete. Ownership structure fully documented.', targetId:null, done:true };
+  }
+
+  function getName(n) { return n.data?.legalName || n.data?.fullName || n.label || n.id; }
+
+  function render() { renderSidebar(); renderPage(); updateStats(); updateProgress(); updateNextAction(); }
+
+  function renderSidebar() { sbTree.innerHTML = ''; renderSidebarNode('root', 0); }
+  function renderSidebarNode(id, depth) {
+    const n = layers[id]; if (!n) return;
+    const status = getNodeStatus(n);
+    const el = document.createElement('div');
+    el.className = 'sb-node'+(id===activeLayerId?' active':'')+(n.type==='CollectiveBottom'?' sb-node--cb':'');
+    el.dataset.depth = depth;
+    el.style.setProperty('--indent', (depth*18)+'px');
+    const statusMap = { complete:{cls:'sb-status--complete',icon:'✓'}, progress:{cls:'sb-status--progress',icon:'…'}, attention:{cls:'sb-status--attention',icon:'!'}, empty:{cls:'sb-status--empty',icon:'○'}, cb:{cls:'sb-status--cb',icon:'~'} };
+    const st = statusMap[status]||statusMap.empty;
+    const displayName = getName(n);
+    const metaLabel = n.type==='CollectiveBottom'?'Auto-generated':status==='complete'?'Complete':status==='attention'?'Needs shareholders':status==='progress'?'In progress':'Not started';
+    const pctDisplay = n.layer>0?`${n.ownPct.toFixed(1)}%`:'';
+    const docCount = (docStore[id]||[]).length;
+    const docBadge = docCount>0?` · ${docCount} doc${docCount>1?'s':''}`:'';
+    el.innerHTML = `<div class="sb-status ${st.cls}">${st.icon}</div><div class="sb-node-info"><div class="sb-node-label">${esc(displayName)}</div><div class="sb-node-meta">${metaLabel}${docBadge}</div></div>${pctDisplay?`<span class="sb-node-pct">${pctDisplay}</span>`:''}`;
+    if (n.type!=='CollectiveBottom') el.addEventListener('click',()=>{activeLayerId=id;render();});
+    sbTree.appendChild(el);
+    n.children.forEach(cid=>renderSidebarNode(cid,depth+1));
+  }
+
+  function updateStats() {
+    let ent=0,ind=0;
+    Object.values(layers).forEach(n=>{if(n.type==='Root'||n.type==='Entity')ent++;else if(n.type==='Individual')ind++;});
+    statEntities.textContent=`${ent} entit${ent===1?'y':'ies'}`;
+    statIndividuals.textContent=`${ind} individual${ind===1?'':'s'}`;
+  }
+  function updateProgress() {
+    const all=Object.values(layers).filter(n=>n.type!=='CollectiveBottom');
+    const done=all.filter(n=>getNodeStatus(n)==='complete').length;
+    const pct=all.length>0?Math.round((done/all.length)*100):0;
+    sbProgFill.style.width=pct+'%';
+    sbProgLabel.textContent=`${done}/${all.length} layers complete · ${pct}%`;
+  }
+  function updateNextAction() {
+    const na=computeNextAction();
+    if(na.done){sbNextAction.innerHTML=`<div class="sb-na-eyebrow">Status</div><div class="sb-na-text" style="color:var(--green);">${na.text}</div>`;}
+    else{sbNextAction.innerHTML=`<div class="sb-na-eyebrow">Next action</div><div class="sb-na-text">${na.text}</div>${na.targetId?`<button class="sb-na-btn" data-go="${na.targetId}">Go to layer →</button>`:''}`; const goBtn=sbNextAction.querySelector('[data-go]'); if(goBtn)goBtn.addEventListener('click',()=>{activeLayerId=goBtn.dataset.go;render();});}
+  }
+
+  /* ── Page ──────────────────────────────────────── */
+  function renderPage() {
+    const n=layers[activeLayerId]; if(!n) return;
+    const breadcrumb=buildBreadcrumb(activeLayerId);
+    const typeClass=n.type==='Individual'?'individual':(n.type==='Root'?'root':'entity');
+    const typeLabel=n.type==='Root'?'Root Entity':n.type;
+    const displayName=getName(n);
+    const isEntity=n.type==='Root'||n.type==='Entity';
+
+    let html=`<div class="page-hdr fade-in"><div class="page-breadcrumb">${breadcrumb}</div><div class="page-title-row"><span class="page-type-badge page-type-badge--${typeClass}">${typeLabel}</span><span class="page-title">${esc(displayName)}</span></div><div class="page-subtitle">Layer ${n.layer}${n.parentId?' · Shareholder of '+esc(getName(layers[n.parentId])):''}</div></div>`;
+    let stepIdx=1;
+    html+=renderDocUploadStep(n,stepIdx++);
+    html+=renderExtractionStep(n,stepIdx++);
+    html+=renderDetailsStep(n,stepIdx++);
+    if(n.layer>0) html+=renderOwnershipStep(n,stepIdx++);
+    if(isEntity) html+=renderShareholdersStep(n,stepIdx++);
+    html+=renderDisclaimerBar(displayName);
+    html+='<div class="page-bottom-spacer"></div>';
+    mainContent.innerHTML=html;
+    mainContent.scrollTop=0;
+    wireFormEvents(n);
+    wireDocEvents(n);
+    wireExtractionEvents(n);
+  }
+
+  function buildBreadcrumb(id) {
+    const chain=[]; let cur=id;
+    while(cur){const n=layers[cur];if(!n)break;chain.unshift({id:cur,name:getName(n)});cur=n.parentId;}
+    return chain.map((c,i)=>i<chain.length-1?`<span data-nav="${c.id}" style="cursor:pointer;color:var(--txt-dim)">${esc(c.name)}</span><span style="color:var(--txt-mute)"> › </span>`:`<span style="color:var(--txt)">${esc(c.name)}</span>`).join('');
+  }
+
+  /* ── Step 1: Document Upload ───────────────────── */
+  function renderDocUploadStep(n,stepIdx) {
+    const docs=docStore[n.id]||[];
+    const hasDocs=docs.length>0;
+    const numCls=hasDocs?'step-num--done':'step-num--active';
+    const docLabel=n.type==='Individual'?'passport, national ID, residence visa':'trade license, certificate of incorporation, MOA';
+    let docListHtml='';
+    if(hasDocs){docListHtml=`<div class="doc-list">${docs.map(d=>{const isPdf=d.type==='application/pdf';return `<div class="doc-item"><div class="doc-icon ${isPdf?'doc-icon--pdf':'doc-icon--img'}">${isPdf?'◻':'▣'}</div><div class="doc-info"><div class="doc-name">${esc(d.name)}</div><div class="doc-meta"><span>${formatSize(d.size)}</span><span>${isPdf?'PDF':'Image'}</span></div></div><button class="doc-remove" data-doc-remove="${d.id}" title="Remove">✕</button></div>`;}).join('')}</div>`;}
+    return `<div class="step fade-in"><div class="step-header"><div class="step-num ${numCls}">${stepIdx}</div><span class="step-title">Step ${stepIdx} · <span class="step-title-main">Document Upload</span></span><div class="step-line"></div>${hasDocs?`<span class="step-badge step-badge--docs">${docs.length} file${docs.length>1?'s':''}</span>`:''}</div><div class="step-body"><div class="drop-zone" id="drop-zone"><input type="file" id="file-input" multiple accept=".pdf,.png,.jpg,.jpeg,.webp"/><div class="drop-zone-icon">↑</div><div class="drop-zone-text">Drop files here or <strong>click to browse</strong><br/>Upload ${docLabel}</div><div class="drop-zone-hint">Supports PDF, PNG, JPG · Max 10 MB per file</div></div>${docListHtml}</div></div>`;
+  }
+
+  /* ── Step 2: Extraction ────────────────────────── */
+  function renderExtractionStep(n,stepIdx) {
+    const docs=docStore[n.id]||[];
+    const hasDocs=docs.length>0;
+    const es=extractState[n.id]||{status:'idle'};
+    const isProcessing=es.status==='ocr'||es.status==='llm';
+    const isDone=es.status==='done';
+    const isError=es.status==='error';
+    const isApplied=es.appliedToForm;
+
+    if(!hasDocs){return `<div class="step locked fade-in"><div class="step-header"><div class="step-num step-num--locked">${stepIdx}</div><span class="step-title">Step ${stepIdx} · <span class="step-title-main">AI Extraction & Review</span></span><div class="step-line"></div><span class="step-badge step-badge--live">AI-Powered</span></div><div class="step-body"><div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:24px;border:1px dashed var(--bdr-mid);border-radius:8px;"><div style="font-size:18px;opacity:.25;">◎</div><div style="font-family:var(--fm);font-size:11px;color:var(--txt-mute);text-align:center;">Upload documents in Step 1 to enable AI-powered field extraction.</div></div></div></div>`;}
+
+    let numCls='step-num--active';
+    if(isProcessing)numCls='step-num--processing';
+    else if(isDone&&isApplied)numCls='step-num--done';
+    else if(isError)numCls='step-num--warn';
+
+    let bodyHtml='';
+    if(es.status==='idle'){
+      const keyConfigured = hasApiKey();
+      const noKeyHint = keyConfigured ? '' : `<div style="margin-top:10px;padding:10px 14px;background:var(--amb-bg);border:1px solid var(--amb-bdr);border-radius:6px;font-family:var(--fm);font-size:10px;color:var(--amber);line-height:1.7;"><strong>No API key configured.</strong> OCR will run (free), but AI structuring will be skipped. <span style="cursor:pointer;text-decoration:underline;" id="open-config-from-step">Configure API key →</span></div>`;
+      const btnLabel = keyConfigured ? '⚡ Run AI Extraction' : '⚡ Run OCR Only';
+      bodyHtml=`<div style="text-align:center;padding:10px 0;"><div style="font-family:var(--fm);font-size:11px;color:var(--txt-dim);margin-bottom:12px;">Ready to extract data from ${docs.length} document${docs.length>1?'s':''}.</div><button class="btn btn-cyan" id="btn-extract">${btnLabel}</button>${noKeyHint}</div>`;
+    } else if(isProcessing){
+      const ocrDone=es.status!=='ocr';
+      const llmActive=es.status==='llm';
+      // Per-document OCR progress
+      let docProgressHtml = '';
+      if (!ocrDone && es.ocrProgress) {
+        docProgressHtml = '<div class="ocr-doc-progress">' + docs.map((d, i) => {
+          const state = i < es.ocrProgress.done ? 'done' : i === es.ocrProgress.done ? 'processing' : 'waiting';
+          const icon = state === 'done' ? '✓' : state === 'processing' ? '' : '○';
+          const statusText = state === 'done' ? 'Done' : state === 'processing' ? 'Processing…' : 'Waiting';
+          return `<div class="ocr-doc-item ${state}">${state === 'processing' ? '<div class="spinner"></div>' : `<span style="font-size:9px;width:14px;text-align:center;">${icon}</span>`}<span class="ocr-doc-name">${esc(d.name)}</span><span class="ocr-doc-status">${statusText}</span></div>`;
+        }).join('') + '</div>';
+      }
+      const ocrLabel = ocrDone ? 'OCR Complete' : (es.ocrProgress ? `Processing document ${es.ocrProgress.done + 1} of ${docs.length}…` : 'Running OCR…');
+      const llmProviderName = apiConfig.provider === 'openai' ? 'GPT' : 'Claude';
+      const elapsed = es.llmStartTime ? Math.round((Date.now() - es.llmStartTime) / 1000) : 0;
+      const elapsedStr = elapsed > 0 ? `${elapsed}s elapsed` : '';
+      // Progress ring: fills over ~30s as an estimate
+      const pctFill = llmActive ? Math.min(95, Math.round((elapsed / 60) * 100)) : 0;
+      const circumference = 2 * Math.PI * 15; // r=15
+      const dashOffset = circumference - (pctFill / 100) * circumference;
+      const progressRingSvg = `<div class="llm-progress-wrap"><svg class="llm-progress-ring" width="36" height="36" viewBox="0 0 36 36"><circle class="llm-progress-ring-bg" cx="18" cy="18" r="15"/><circle class="llm-progress-ring-fill" cx="18" cy="18" r="15" stroke-dasharray="${circumference.toFixed(1)}" stroke-dashoffset="${dashOffset.toFixed(1)}"/></svg></div>`;
+
+      bodyHtml=`<div class="extract-pipeline"><div class="extract-stage ${ocrDone?'done':'active'}"><div class="extract-stage-icon ${ocrDone?'extract-stage-icon--done':'extract-stage-icon--active'}">${ocrDone?'✓':''}</div>${!ocrDone?'<div class="spinner"></div>':''}<div class="extract-stage-info"><div class="extract-stage-label">${ocrLabel}</div><div class="extract-stage-desc">${ocrDone?'Text extracted from all documents':'Tesseract.js is reading your documents'}</div></div></div>${docProgressHtml}<div class="extract-stage ${llmActive?'active':''}"><div style="display:flex;align-items:center;gap:10px;flex:1;">${llmActive?progressRingSvg:`<div class="extract-stage-icon ${llmActive?'extract-stage-icon--active':'extract-stage-icon--wait'}">${llmActive?'':'○'}</div>`}<div class="extract-stage-info"><div class="extract-stage-label">${llmActive?'Structuring with '+llmProviderName+'…':'AI Structuring'}</div><div class="extract-stage-desc">${llmActive?(elapsedStr?elapsedStr+' · ':'')+'Extracting structured fields from OCR text':'Waiting for OCR to complete'}</div></div></div></div></div>${llmActive?'<div class="llm-cancel"><button class="btn btn-ghost btn-sm" id="btn-cancel-extract">✕ Cancel</button></div>':''}`;
+    } else if(isError){
+      bodyHtml=`<div class="mat-banner mat-banner--red"><span class="mat-icon">⚠</span><div class="mat-body"><div class="mat-title">Extraction failed</div><div class="mat-desc">${esc(es.error||'Unknown error')}. You can retry or fill in details manually.</div></div></div><div style="display:flex;gap:8px;"><button class="btn btn-cyan btn-sm" id="btn-extract">↻ Retry</button>${es.ocrText?'<button class="btn btn-ghost btn-sm" id="btn-dl-ocr">↓ Download OCR Text</button>':''}</div>`;
+    } else if(isDone&&!isApplied){
+      if(es.ocrOnly){
+        bodyHtml=`<div class="mat-banner mat-banner--amber"><span class="mat-icon">◐</span><div class="mat-body"><div class="mat-title">OCR complete — AI structuring skipped</div><div class="mat-desc">No API key configured. Raw OCR text is available below. You can fill in the detail fields manually, or <span style="cursor:pointer;text-decoration:underline;" id="open-config-from-step">configure an API key</span> and re-run.</div></div></div>${es.ocrText?`<details class="ocr-raw-toggle" open><summary>Raw OCR text</summary><div class="ocr-raw-text">${esc(es.ocrText)}</div></details>`:''}<div style="margin-top:10px;display:flex;gap:8px;"><button class="btn btn-ghost btn-sm" id="btn-re-extract">↻ Re-run</button>${es.ocrText?'<button class="btn btn-ghost btn-sm" id="btn-dl-ocr">↓ Download OCR Text</button>':''}</div>`;
+      } else {
+        bodyHtml=renderReviewForm(n,es);
+      }
+    } else if(isDone&&isApplied){
+      bodyHtml=`<div class="mat-banner mat-banner--green"><span class="mat-icon">✓</span><div class="mat-body"><div class="mat-title">Extracted data applied</div><div class="mat-desc">AI-extracted fields have been applied to the detail form below. You can continue editing there.</div></div></div>${es.ocrText?`<details class="ocr-raw-toggle"><summary>View raw OCR text</summary><div class="ocr-raw-text">${esc(es.ocrText)}</div></details>`:''}<div style="margin-top:10px;display:flex;gap:8px;"><button class="btn btn-ghost btn-sm" id="btn-re-extract">↻ Re-run Extraction</button>${es.ocrText?'<button class="btn btn-ghost btn-sm" id="btn-dl-ocr">↓ Download OCR Text</button>':''}</div>`;
+    }
+
+    return `<div class="step fade-in"><div class="step-header"><div class="step-num ${numCls}">${stepIdx}</div><span class="step-title">Step ${stepIdx} · <span class="step-title-main">AI Extraction & Review</span></span><div class="step-line"></div><span class="step-badge step-badge--live">AI-Powered</span></div><div class="step-body">${bodyHtml}</div></div>`;
+  }
+
+  function renderReviewForm(n,es) {
+    const ext=es.extracted||{};
+    const isEntity=n.type==='Root'||n.type==='Entity';
+    let fieldsHtml='';
+
+    if(isEntity){
+      const fields=[{key:'legalName',label:'Legal Name',val:ext.legalName},{key:'tradeName',label:'Trade Name',val:ext.tradeName},{key:'regNumber',label:'Registration Number',val:ext.regNumber},{key:'jurisdiction',label:'Jurisdiction',val:ext.jurisdiction},{key:'incorporationDate',label:'Incorporation Date',val:ext.incorporationDate,type:'date'},{key:'entityType',label:'Entity Type',val:ext.entityType,type:'select'},{key:'address',label:'Registered Address',val:ext.address,full:true},{key:'controllers',label:'Controllers / Directors / Signatories',val:ext.controllers,full:true}];
+      fieldsHtml=fields.map(f=>{
+        const hasVal=f.val&&String(f.val).trim();
+        const cls=hasVal?'review-field-changed':'';
+        const full=f.full?' fg-full':'';
+        if(f.type==='select'){const opts=['','llc','fzllc','shareholding','holding','soleEstablishment','branch','trust','foundation','other'];const optLabels={'':'Select…','llc':'LLC','fzllc':'Free Zone LLC','shareholding':'Shareholding Co.','holding':'Holding Company','soleEstablishment':'Sole Establishment','branch':'Branch','trust':'Trust','foundation':'Foundation','other':'Other'};return `<div class="fg${full} ${cls}"><label class="fl">${f.label}</label><select class="sel" data-review-field="${f.key}">${opts.map(o=>`<option value="${o}" ${(f.val||'')===o?'selected':''}>${optLabels[o]||o}</option>`).join('')}</select></div>`;}
+        if(f.type==='date')return `<div class="fg${full} ${cls}"><label class="fl">${f.label}</label><input class="inp" type="date" data-review-field="${f.key}" value="${f.val||''}"/></div>`;
+        return `<div class="fg${full} ${cls}"><label class="fl">${f.label}</label><input class="inp" data-review-field="${f.key}" value="${esc(f.val||'')}" placeholder="Not detected…"/></div>`;
+      }).join('');
+
+      // Shareholders extracted
+      const shareholders = ext.shareholders || [];
+      if (shareholders.length > 0) {
+        fieldsHtml += `<div class="fg-full" style="grid-column:1/-1;margin-top:8px;"><label class="fl" style="margin-bottom:6px;">Extracted Shareholders</label><div style="background:var(--surf2);border:1px solid var(--bdr);border-radius:6px;overflow:hidden;"><table class="sh-table" style="margin:0;"><thead><tr><th>Name</th><th>Type</th><th>Ownership %</th><th>Include</th></tr></thead><tbody>${shareholders.map((sh,i) => {
+          const pct = typeof sh.ownershipPct === 'number' ? sh.ownershipPct : parseFloat(sh.ownershipPct) || 0;
+          return `<tr><td><span class="sh-type-dot sh-type-dot--${(sh.type||'').toLowerCase()==='individual'?'individual':'entity'}"></span><input class="inp" data-sh-name="${i}" value="${esc(sh.name||'')}" style="height:28px;font-size:10px;display:inline;width:auto;min-width:120px;"/></td><td><select class="sel" data-sh-type="${i}" style="height:28px;font-size:10px;width:100px;"><option value="Entity" ${sh.type==='Entity'?'selected':''}>Entity</option><option value="Individual" ${sh.type==='Individual'?'selected':''}>Individual</option></select></td><td><input class="inp" type="number" data-sh-pct="${i}" value="${pct.toFixed(2)}" step="0.01" min="0" max="100" style="height:28px;font-size:10px;width:80px;"/></td><td style="text-align:center;"><input type="checkbox" data-sh-include="${i}" checked style="cursor:pointer;"/></td></tr>`;
+        }).join('')}</tbody></table></div><div style="font-family:var(--fm);font-size:9px;color:var(--txt-mute);margin-top:4px;">Uncheck any shareholder you don't want to add. Edit names, types, and percentages as needed.</div></div>`;
+      }
+    } else {
+      const fields=[{key:'fullName',label:'Full Name',val:ext.fullName},{key:'nationality',label:'Nationality',val:ext.nationality},{key:'dob',label:'Date of Birth',val:ext.dob,type:'date'},{key:'idType',label:'ID Type',val:ext.idType,type:'select'},{key:'idNumber',label:'ID Number',val:ext.idNumber},{key:'idExpiry',label:'ID Expiry',val:ext.idExpiry,type:'date'},{key:'address',label:'Residential Address',val:ext.address,full:true}];
+      fieldsHtml=fields.map(f=>{
+        const hasVal=f.val&&String(f.val).trim();
+        const cls=hasVal?'review-field-changed':'';
+        const full=f.full?' fg-full':'';
+        if(f.type==='select'&&f.key==='idType'){const opts=['','passport','nationalId','residenceVisa'];const optLabels={'':'Select…','passport':'Passport','nationalId':'National ID','residenceVisa':'Residence Visa'};return `<div class="fg${full} ${cls}"><label class="fl">${f.label}</label><select class="sel" data-review-field="${f.key}">${opts.map(o=>`<option value="${o}" ${(f.val||'')===o?'selected':''}>${optLabels[o]||o}</option>`).join('')}</select></div>`;}
+        if(f.type==='date')return `<div class="fg${full} ${cls}"><label class="fl">${f.label}</label><input class="inp" type="date" data-review-field="${f.key}" value="${f.val||''}"/></div>`;
+        return `<div class="fg${full} ${cls}"><label class="fl">${f.label}</label><input class="inp" data-review-field="${f.key}" value="${esc(f.val||'')}" placeholder="Not detected…"/></div>`;
+      }).join('');
+    }
+
+    return `<div class="review-form"><div class="review-form-header"><div class="review-form-title">⚡ Extracted Fields — Review & Edit</div><div class="review-form-hint">Fields marked "AI" were auto-detected</div></div><div class="form-grid">${fieldsHtml}</div><div class="review-actions"><button class="btn btn-ghost btn-sm" id="btn-discard-extract">Discard</button>${es.ocrText?'<button class="btn btn-ghost btn-sm" id="btn-dl-ocr">↓ OCR Text</button>':''}<button class="btn btn-green btn-sm" id="btn-apply-extract">✓ Confirm & Apply to Details</button></div></div>${es.ocrText?`<details class="ocr-raw-toggle"><summary>View raw OCR text</summary><div class="ocr-raw-text">${esc(es.ocrText)}</div></details>`:''}`;
+  }
+
+  /* ── Step 3: Details ───────────────────────────── */
+  function renderDetailsStep(n,stepIdx) {
+    const hasName=n.type==='Individual'?!!(n.data.fullName?.trim()):!!(n.data.legalName?.trim());
+    const numCls=hasName?'step-num--done':'step-num--active';
+    const stepLabel=n.type==='Individual'?'Individual details':(n.type==='Root'?'Company details':'Entity details');
+    let fieldsHtml='';
+    if(n.type==='Individual'){
+      fieldsHtml=`<div class="form-grid"><div class="fg"><label class="fl">Full Name</label><input class="inp" data-field="fullName" value="${esc(n.data.fullName||'')}" placeholder="Full legal name…"/></div><div class="fg"><label class="fl">Nationality</label><input class="inp" data-field="nationality" value="${esc(n.data.nationality||'')}" placeholder="e.g. UAE, UK, US…"/></div><div class="fg"><label class="fl">Date of Birth</label><input class="inp" type="date" data-field="dob" value="${n.data.dob||''}"/></div><div class="fg"><label class="fl">ID Type</label><select class="sel" data-field="idType"><option value="">Select…</option><option value="passport" ${n.data.idType==='passport'?'selected':''}>Passport</option><option value="nationalId" ${n.data.idType==='nationalId'?'selected':''}>National ID</option><option value="residenceVisa" ${n.data.idType==='residenceVisa'?'selected':''}>Residence Visa</option></select></div><div class="fg"><label class="fl">ID Number</label><input class="inp" data-field="idNumber" value="${esc(n.data.idNumber||'')}" placeholder="Document number…"/></div><div class="fg"><label class="fl">ID Expiry</label><input class="inp" type="date" data-field="idExpiry" value="${n.data.idExpiry||''}"/></div><div class="fg fg-full"><label class="fl">Residential Address</label><input class="inp" data-field="address" value="${esc(n.data.address||'')}" placeholder="Full residential address…"/></div><div class="fg fg-full"><label class="fl">Notes <span class="fl-opt">(optional)</span></label><textarea class="ta" data-field="notes" placeholder="Additional notes…">${esc(n.data.notes||'')}</textarea></div></div>`;
+    } else {
+      fieldsHtml=`<div class="form-grid"><div class="fg"><label class="fl">Legal Name</label><input class="inp" data-field="legalName" value="${esc(n.data.legalName||'')}" placeholder="Registered legal name…"/></div><div class="fg"><label class="fl">Trade Name <span class="fl-opt">(optional)</span></label><input class="inp" data-field="tradeName" value="${esc(n.data.tradeName||'')}" placeholder="DBA / trade name…"/></div><div class="fg"><label class="fl">Registration Number</label><input class="inp" data-field="regNumber" value="${esc(n.data.regNumber||'')}" placeholder="License / reg #…"/></div><div class="fg"><label class="fl">Jurisdiction</label><input class="inp" data-field="jurisdiction" value="${esc(n.data.jurisdiction||'')}" placeholder="e.g. DIFC, ADGM, BVI…"/></div><div class="fg"><label class="fl">Incorporation Date</label><input class="inp" type="date" data-field="incorporationDate" value="${n.data.incorporationDate||''}"/></div><div class="fg"><label class="fl">Entity Type</label><select class="sel" data-field="entityType"><option value="">Select…</option><option value="llc" ${n.data.entityType==='llc'?'selected':''}>LLC</option><option value="fzllc" ${n.data.entityType==='fzllc'?'selected':''}>Free Zone LLC</option><option value="shareholding" ${n.data.entityType==='shareholding'?'selected':''}>Shareholding Co.</option><option value="holding" ${n.data.entityType==='holding'?'selected':''}>Holding Company</option><option value="soleEstablishment" ${n.data.entityType==='soleEstablishment'?'selected':''}>Sole Establishment</option><option value="branch" ${n.data.entityType==='branch'?'selected':''}>Branch</option><option value="trust" ${n.data.entityType==='trust'?'selected':''}>Trust</option><option value="foundation" ${n.data.entityType==='foundation'?'selected':''}>Foundation</option><option value="other" ${n.data.entityType==='other'?'selected':''}>Other</option></select></div><div class="fg fg-full"><label class="fl">Registered Address</label><input class="inp" data-field="address" value="${esc(n.data.address||'')}" placeholder="Full registered address…"/></div><div class="fg fg-full"><label class="fl">Controllers / Directors / Signatories</label><input class="inp" data-field="controllers" value="${esc(n.data.controllers||'')}" placeholder="Directors, managers, authorized signatories…"/></div><div class="fg fg-full"><label class="fl">Notes <span class="fl-opt">(optional)</span></label><textarea class="ta" data-field="notes" placeholder="Additional notes…">${esc(n.data.notes||'')}</textarea></div></div>`;
+    }
+    return `<div class="step fade-in"><div class="step-header"><div class="step-num ${numCls}">${stepIdx}</div><span class="step-title">Step ${stepIdx} · <span class="step-title-main">${stepLabel}</span></span><div class="step-line"></div><span class="save-flash" id="save-flash-details">✓ saved</span></div><div class="step-body">${fieldsHtml}</div></div>`;
+  }
+
+  /* ── Step 4: Ownership ─────────────────────────── */
+  function renderOwnershipStep(n,stepIdx) {
+    const parent=layers[n.parentId]; const parentName=getName(parent);
+    const pctColor=n.type==='Individual'?'own-pct-big--green':'';
+    const chain=[]; let cur=n.id;
+    while(cur){const nd=layers[cur];if(!nd)break;chain.unshift(nd);cur=nd.parentId;}
+    const chainHtml=chain.map(c=>`<span>${esc(getName(c))}</span>`).join('<span class="chain-arrow">→</span>');
+    return `<div class="step fade-in"><div class="step-header"><div class="step-num step-num--done">${stepIdx}</div><span class="step-title">Step ${stepIdx} · <span class="step-title-main">Ownership & Relationship</span></span><div class="step-line"></div></div><div class="step-body"><div class="own-display"><span class="own-pct-big ${pctColor}">${n.ownPct.toFixed(2)}%</span><div class="own-details"><div class="own-detail-row"><strong>Direct ownership</strong> of ${esc(parentName)}</div><div class="own-detail-row">Effective: <strong>${n.effPct.toFixed(2)}%</strong> of Applicant Company</div><div class="own-detail-row">Layer: <strong>${n.layer}</strong></div></div></div><div class="own-chain"><div class="own-chain-label">Ownership Chain</div><div class="own-chain-path">${chainHtml}</div></div></div></div>`;
+  }
+
+  /* ── Step 5: Shareholders ──────────────────────── */
+  function renderShareholdersStep(n,stepIdx) {
+    const children=n.children.map(cid=>layers[cid]).filter(Boolean);
+    const nonCB=children.filter(c=>c.type!=='CollectiveBottom');
+    const mat=getMateriality(n);
+    let numCls='step-num--active';
+    if(mat.level==='red')numCls='step-num--warn';
+    else if(mat.level==='green'&&children.length>0)numCls='step-num--done';
+
+    let bannerHtml='';
+    if(children.length>0){
+      if(mat.level==='red')bannerHtml=`<div class="mat-banner mat-banner--red"><span class="mat-icon">⚠</span><div class="mat-body"><div class="mat-title">Potential UBOs not yet declared</div><div class="mat-desc">${mat.unalloc.toFixed(1)}% unaccounted — exceeds 25% UBO threshold.</div></div></div>`;
+      else if(mat.level==='amber')bannerHtml=`<div class="mat-banner mat-banner--amber"><span class="mat-icon">◐</span><div class="mat-body"><div class="mat-title">Possible significant shareholder missing</div><div class="mat-desc">${mat.unalloc.toFixed(1)}% unaccounted — between 15–25%.</div></div></div>`;
+      else if(mat.level==='green')bannerHtml=`<div class="mat-banner mat-banner--green"><span class="mat-icon">✓</span><div class="mat-body"><div class="mat-title">All material shareholders captured</div><div class="mat-desc">${mat.unalloc>0?mat.unalloc.toFixed(1)+'% remainder auto-assigned to collective group.':'Fully allocated.'}</div></div></div>`;
+    }
+
+    let tableHtml='';
+    if(children.length>0){
+      tableHtml=`<table class="sh-table"><thead><tr><th>Name</th><th>Type</th><th>Own %</th><th>Eff %</th><th></th></tr></thead><tbody>${children.map(c=>{const name=getName(c);const dotCls=c.type==='Entity'?'entity':c.type==='Individual'?'individual':'cb';const isNav=c.type!=='CollectiveBottom';const nameCell=isNav?`<span class="sh-nav-link" data-nav="${c.id}">${esc(name)}</span>`:`<span style="font-style:italic;color:var(--txt-mute)">${esc(name)}</span>`;const delBtn=c.type!=='CollectiveBottom'?`<button class="btn btn-ghost btn-sm btn-danger" data-del="${c.id}" style="height:24px;padding:0 8px;font-size:9px;">✕</button>`:'';return `<tr><td><span class="sh-type-dot sh-type-dot--${dotCls}"></span>${nameCell}</td><td style="font-size:10px;color:var(--txt-dim)">${c.type==='CollectiveBottom'?'Collective':c.type}</td><td class="sh-pct">${c.ownPct.toFixed(2)}%</td><td style="color:var(--txt-dim)">${c.effPct.toFixed(2)}%</td><td style="width:40px;text-align:right">${delBtn}</td></tr>`;}).join('')}</tbody></table>`;
+    } else { tableHtml=`<div class="empty-shareholders">No shareholders added yet.</div>`; }
+
+    const allocPct=round2(nonCB.reduce((s,c)=>s+c.ownPct,0));
+    const pctClass=allocPct>100?'over':allocPct===100?'exact':allocPct>=85?'near':'ok';
+    const pctBar=children.length>0?`<div class="pct-summary"><div class="pct-bar-wrap"><div class="pct-bar-fill ${pctClass}" style="width:${Math.min(allocPct,100)}%"></div></div><span class="pct-label" style="color:var(--${pctClass==='over'?'red':pctClass==='exact'?'green':pctClass==='near'?'amber':'txt-dim'})">${allocPct.toFixed(2)}%</span><span class="pct-remainder">${allocPct<100?round2(100-allocPct).toFixed(2)+'% unallocated':allocPct===100?'Fully allocated':'Over-allocated!'}</span></div>`:'';
+
+    const isFormOpen=addFormOpen[n.id]||false;
+    return `<div class="step fade-in"><div class="step-header"><div class="step-num ${numCls}">${stepIdx}</div><span class="step-title">Step ${stepIdx} · <span class="step-title-main">Shareholders</span></span><div class="step-line"></div><span class="step-badge step-badge--count">${nonCB.length} declared</span></div><div class="step-body">${bannerHtml}${tableHtml}${pctBar}<div class="sh-add-area"><button class="sh-add-btn" id="sh-add-toggle" ${isFormOpen?'style="display:none"':''}><span class="plus">+</span> Add Shareholder</button><div class="sh-add-form ${isFormOpen?'open':''}" id="sh-add-form"><div class="form-grid"><div class="fg"><label class="fl">Type</label><select class="sel" id="add-type"><option value="Entity">Entity</option><option value="Individual">Individual</option></select></div><div class="fg"><label class="fl">Ownership %</label><input class="inp" id="add-pct" type="number" min="0.01" max="100" step="0.01" placeholder="0.00"/></div><div class="fg fg-full"><label class="fl">Name</label><input class="inp" id="add-name" placeholder="Legal name or full name…"/></div></div><div class="sh-add-actions"><button class="btn btn-ghost btn-sm" id="add-cancel">Cancel</button><button class="btn btn-primary btn-sm" id="add-confirm">Add Shareholder</button></div></div></div></div></div>`;
+  }
+
+  function renderDisclaimerBar(entityName) {
+    return `<div class="disclaimer fade-in"><div class="disc-icon">⚑</div><div class="disc-body"><div class="disc-title">Review before confirming</div><div class="disc-text">Verify accuracy and completeness of all information for <strong>${esc(entityName)}</strong>. AI-extracted data should be carefully reviewed — you are responsible for confirming all details are correct.</div></div></div>`;
+  }
+
+  /* ── Wire events ───────────────────────────────── */
+  function wireFormEvents(n) {
+    mainContent.querySelectorAll('[data-field]').forEach(f=>{
+      const evt=f.tagName==='SELECT'?'change':'input';
+      f.addEventListener(evt,()=>{
+        n.data[f.dataset.field]=f.value;
+        if(f.dataset.field==='legalName'&&f.value.trim())n.label=f.value.trim();
+        if(f.dataset.field==='fullName'&&f.value.trim())n.label=f.value.trim();
+        renderSidebar();updateProgress();updateNextAction();
+        const flash=document.getElementById('save-flash-details');
+        if(flash){flash.classList.add('show');setTimeout(()=>flash.classList.remove('show'),1500);}
+      });
+    });
+    mainContent.querySelectorAll('[data-nav]').forEach(el=>{el.addEventListener('click',e=>{e.stopPropagation();activeLayerId=el.dataset.nav;render();});});
+
+    const addToggle=document.getElementById('sh-add-toggle');
+    const addForm=document.getElementById('sh-add-form');
+    if(addToggle&&addForm){addToggle.addEventListener('click',()=>{addFormOpen[n.id]=true;addToggle.style.display='none';addForm.classList.add('open');addForm.querySelector('#add-name')?.focus();});}
+    const addCancel=document.getElementById('add-cancel');
+    if(addCancel)addCancel.addEventListener('click',()=>{addFormOpen[n.id]=false;render();});
+
+    const addConfirm=document.getElementById('add-confirm');
+    if(addConfirm){
+      addConfirm.addEventListener('click',()=>{
+        const type=document.getElementById('add-type').value;
+        const pct=parseFloat(document.getElementById('add-pct').value);
+        const name=document.getElementById('add-name').value.trim();
+        if(!pct||pct<=0||pct>100){flashError('add-pct');return;}
+        const currentTotal=n.children.reduce((s,cid)=>{const c=layers[cid];return s+(c&&c.type!=='CollectiveBottom'?c.ownPct:0);},0);
+        if(round2(currentTotal+pct)>100){flashError('add-pct');return;}
+        const newId=generateId(type);
+        const effPct=round2(pct*n.effPct/100);
+        const defaultData=type==='Individual'?{fullName:name||newId,nationality:'',dob:'',idType:'',idNumber:'',idExpiry:'',address:'',notes:''}:{legalName:name||newId,tradeName:'',regNumber:'',jurisdiction:'',incorporationDate:'',entityType:'',address:'',controllers:'',notes:''};
+        layers[newId]={id:newId,type,label:name||newId,parentId:n.id,layer:n.layer+1,ownPct:pct,effPct,children:[],data:defaultData};
+        const cbIdx=n.children.findIndex(cid=>layers[cid]?.type==='CollectiveBottom');
+        if(cbIdx>=0){delete layers[n.children[cbIdx]];n.children.splice(cbIdx,1);}
+        n.children.push(newId);
+        updateCollectiveBottom(n.id);
+        addFormOpen[n.id]=false;
+        render();
+      });
+    }
+    mainContent.querySelectorAll('[data-del]').forEach(btn=>{btn.addEventListener('click',e=>{e.stopPropagation();deleteShareholder(n.id,btn.dataset.del);render();});});
+  }
+
+  function wireDocEvents(n) {
+    const dropZone=document.getElementById('drop-zone');
+    const fileInput=document.getElementById('file-input');
+    if(!dropZone||!fileInput)return;
+    ['dragenter','dragover'].forEach(ev=>dropZone.addEventListener(ev,e=>{e.preventDefault();dropZone.classList.add('dragover');}));
+    ['dragleave','drop'].forEach(ev=>dropZone.addEventListener(ev,e=>{e.preventDefault();dropZone.classList.remove('dragover');}));
+    dropZone.addEventListener('drop',e=>{handleFiles(n.id,e.dataTransfer.files);});
+    fileInput.addEventListener('change',()=>{if(fileInput.files.length)handleFiles(n.id,fileInput.files);});
+    mainContent.querySelectorAll('[data-doc-remove]').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        docStore[n.id]=(docStore[n.id]||[]).filter(d=>d.id!==btn.dataset.docRemove);
+        if(docStore[n.id].length===0)delete extractState[n.id];
+        render();
+      });
+    });
+  }
+
+  function handleFiles(nodeId,fileList) {
+    if(!docStore[nodeId])docStore[nodeId]=[];
+    const MAX_SIZE=10*1024*1024;
+    const validTypes=['application/pdf','image/png','image/jpeg','image/jpg','image/webp'];
+    Array.from(fileList).forEach(file=>{
+      if(file.size>MAX_SIZE)return;
+      if(!validTypes.includes(file.type)&&!file.name.match(/\.(pdf|png|jpe?g|webp)$/i))return;
+      const reader=new FileReader();
+      reader.onload=()=>{
+        const docId='doc_'+Date.now()+'_'+Math.random().toString(36).substr(2,6);
+        docStore[nodeId].push({id:docId,name:file.name,size:file.size,type:file.type,dataUrl:reader.result,file});
+        if(extractState[nodeId]?.appliedToForm) extractState[nodeId]={status:'idle'};
+        render();
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  let llmTimerInterval = null;
+  let currentAbortController = null;
+
+  function wireExtractionEvents(n) {
+    const btnExtract=document.getElementById('btn-extract');
+    if(btnExtract)btnExtract.addEventListener('click',()=>runExtraction(n.id));
+    const btnReExtract=document.getElementById('btn-re-extract');
+    if(btnReExtract)btnReExtract.addEventListener('click',()=>{extractState[n.id]={status:'idle'};render();});
+    const btnApply=document.getElementById('btn-apply-extract');
+    if(btnApply)btnApply.addEventListener('click',()=>applyExtraction(n.id));
+    const btnDiscard=document.getElementById('btn-discard-extract');
+    if(btnDiscard)btnDiscard.addEventListener('click',()=>{extractState[n.id]={status:'idle'};render();});
+    const cfgLink=document.getElementById('open-config-from-step');
+    if(cfgLink)cfgLink.addEventListener('click',()=>{document.getElementById('config-modal').classList.add('open');});
+    const btnDlOcr=document.getElementById('btn-dl-ocr');
+    if(btnDlOcr)btnDlOcr.addEventListener('click',()=>{
+      const es=extractState[n.id];
+      if(!es||!es.ocrText)return;
+      const blob=new Blob([es.ocrText],{type:'text/plain'});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');
+      const nodeName=(getName(n)||'ocr').replace(/[^a-zA-Z0-9]/g,'_').toLowerCase();
+      a.href=url;a.download=`${nodeName}_ocr_text.txt`;
+      document.body.appendChild(a);a.click();document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+    const btnCancel=document.getElementById('btn-cancel-extract');
+    if(btnCancel)btnCancel.addEventListener('click',()=>{
+      if(currentAbortController){currentAbortController.abort();currentAbortController=null;}
+      if(llmTimerInterval){clearInterval(llmTimerInterval);llmTimerInterval=null;}
+      extractState[n.id].status='error';
+      extractState[n.id].error='Cancelled by user';
+      render();
+    });
+
+    // If LLM is active, start a timer to update the elapsed display
+    const es = extractState[n.id];
+    if(es && es.status === 'llm' && es.llmStartTime) {
+      if(llmTimerInterval) clearInterval(llmTimerInterval);
+      llmTimerInterval = setInterval(() => {
+        // Only re-render the extraction step body to update elapsed time
+        if(extractState[n.id]?.status === 'llm') render();
+        else { clearInterval(llmTimerInterval); llmTimerInterval = null; }
+      }, 1000);
+    }
+  }
+
+  /* ── OCR + LLM Pipeline ────────────────────────── */
+  async function runExtraction(nodeId) {
+    const docs=docStore[nodeId]||[];
+    if(docs.length===0)return;
+    const n=layers[nodeId];if(!n)return;
+    extractState[nodeId]={status:'ocr',ocrText:'',extracted:null,error:null,appliedToForm:false,ocrProgress:{done:0,total:docs.length}};
+    render();
+
+    try {
+      let allText='';
+      for(let di=0;di<docs.length;di++){
+        extractState[nodeId].ocrProgress={done:di,total:docs.length};
+        render();
+        const doc=docs[di];
+        let textFromDoc='';
+        if(doc.type==='application/pdf'){textFromDoc=await ocrPdf(doc.dataUrl);}
+        else{textFromDoc=await ocrImage(doc.dataUrl);}
+        allText+=`\n--- Document: ${doc.name} ---\n${textFromDoc}\n`;
+      }
+      extractState[nodeId].ocrProgress={done:docs.length,total:docs.length};
+      extractState[nodeId].ocrText=allText.trim();
+
+      // If no API key, skip LLM step and go straight to done with OCR only
+      if(!hasApiKey()){
+        extractState[nodeId].status='done';
+        extractState[nodeId].extracted=buildEmptyExtracted(n);
+        extractState[nodeId].ocrOnly=true;
+        render();
+        return;
+      }
+
+      extractState[nodeId].status='llm';
+      extractState[nodeId].llmStartTime = Date.now();
+      render();
+
+      const isEntity=n.type==='Root'||n.type==='Entity';
+      const extracted=await llmExtract(allText,isEntity);
+      if(llmTimerInterval){clearInterval(llmTimerInterval);llmTimerInterval=null;}
+      extractState[nodeId].extracted=extracted;
+      extractState[nodeId].status='done';
+      render();
+    } catch(err) {
+      if(llmTimerInterval){clearInterval(llmTimerInterval);llmTimerInterval=null;}
+      console.error('Extraction error:',err);
+      extractState[nodeId].status='error';
+      extractState[nodeId].error=err.message||'Extraction failed';
+      render();
+    }
+  }
+
+  function buildEmptyExtracted(n) {
+    const isEntity=n.type==='Root'||n.type==='Entity';
+    if(isEntity) return {legalName:'',tradeName:'',regNumber:'',jurisdiction:'',incorporationDate:'',entityType:'',address:'',controllers:'',shareholders:[]};
+    return {fullName:'',nationality:'',dob:'',idType:'',idNumber:'',idExpiry:'',address:''};
+  }
+
+  async function ocrImage(dataUrl) {
+    try{const result=await Tesseract.recognize(dataUrl,'eng',{logger:()=>{}});return result.data.text||'';}
+    catch(err){console.error('OCR error:',err);return '[OCR failed for this image]';}
+  }
+
+  async function ocrPdf(dataUrl) {
+    try{
+      const base64=dataUrl.split(',')[1];
+      const binaryStr=atob(base64);
+      const bytes=new Uint8Array(binaryStr.length);
+      for(let i=0;i<binaryStr.length;i++)bytes[i]=binaryStr.charCodeAt(i);
+      const pdf=await pdfjsLib.getDocument({data:bytes}).promise;
+      let allText='';
+      for(let i=1;i<=Math.min(pdf.numPages,10);i++){
+        const page=await pdf.getPage(i);
+        const textContent=await page.getTextContent();
+        const pageText=textContent.items.map(item=>item.str).join(' ');
+        if(pageText.trim().length>20){allText+=`[Page ${i}] ${pageText}\n`;}
+        else{
+          const viewport=page.getViewport({scale:2.0});
+          const canvas=document.createElement('canvas');
+          canvas.width=viewport.width;canvas.height=viewport.height;
+          const ctx=canvas.getContext('2d');
+          await page.render({canvasContext:ctx,viewport}).promise;
+          const imgData=canvas.toDataURL('image/png');
+          const ocrResult=await Tesseract.recognize(imgData,'eng',{logger:()=>{}});
+          allText+=`[Page ${i}] ${ocrResult.data.text}\n`;
+        }
+      }
+      return allText||'[No text extracted from PDF]';
+    }catch(err){console.error('PDF OCR error:',err);return '[PDF processing failed]';}
+  }
+
+  async function llmExtract(ocrText, isEntity) {
+    const entitySchema = `{
+  "legalName": "string — registered legal name of the company",
+  "tradeName": "string — trade name / DBA if different, or empty string",
+  "regNumber": "string — registration or license number",
+  "jurisdiction": "string — jurisdiction of incorporation (e.g. Cayman Islands, DIFC, ADGM, BVI)",
+  "incorporationDate": "string — YYYY-MM-DD format, or empty string",
+  "entityType": "string — one of: llc|fzllc|shareholding|holding|soleEstablishment|branch|trust|foundation|other",
+  "address": "string — registered address",
+  "controllers": "string — comma-separated list of ALL directors, managers, officers, authorized signatories",
+  "shareholders": [
+    {
+      "name": "string — exact name from document (correct obvious OCR typos)",
+      "type": "string — 'Entity' or 'Individual'",
+      "ownershipPct": 0.00
+    }
+  ]
+}`;
+    const individualSchema = `{
+  "fullName": "string — full legal name",
+  "nationality": "string — nationality if found",
+  "dob": "string — YYYY-MM-DD format, or empty string",
+  "idType": "string — one of: passport|nationalId|residenceVisa, or empty string",
+  "idNumber": "string — document/ID number",
+  "idExpiry": "string — YYYY-MM-DD format, or empty string",
+  "address": "string — residential address"
+}`;
+
+    const entitySystemPrompt = `You are an expert KYB (Know Your Business) document analyst specializing in extracting structured corporate data from OCR text of official documents (certificates of incumbency, trade licenses, MOAs, share certificates, etc.).
+
+## YOUR TASK
+Extract ALL structured fields from the OCR text and return ONLY valid JSON matching the schema below. No markdown fences, no explanation, no preamble — just the JSON object.
+
+## CRITICAL: SHARE-TO-PERCENTAGE CALCULATION METHODOLOGY
+When the document contains a shareholder register or ownership information, follow this EXACT process:
+
+### Step 1: Identify Total Shares
+- Look for "authorised capital", "divided into X shares", or a running member register
+- If multiple share CLASSES exist (Common, Preferred Series A/B/C, ESOP, etc.), compute TOTAL ISSUED shares by summing every individual shareholding listed in the register
+- IMPORTANT: The "authorised" count may exceed issued shares. Use actual ISSUED shares (the sum of all holdings in the register) as the denominator
+
+### Step 2: For Each Shareholder
+- The SAME person/entity may appear MULTIPLE TIMES for different share classes — you MUST merge them
+- Sum ALL their shares across ALL classes (Common + ESOP + Series A + Series B + etc.)
+- Calculate: ownershipPct = (their total shares / total issued shares) * 100
+- Round to 2 decimal places
+
+### Step 3: Cross-Validate
+- All ownershipPct values MUST sum to approximately 100% (98-100% acceptable due to rounding)
+- If they don't, you made a calculation error — recheck your arithmetic
+
+### Step 4: Name Deduplication
+- Merge OCR variants of the same name (e.g., "Bazookat Equity Ltd" and "Bazooka Equity Ltd." are the same entity — use the cleaner version)
+- Use the cleanest/most complete version of each name
+
+## OCR ERROR CORRECTION RULES
+OCR text WILL contain errors. Apply these corrections:
+1. **Decimal drops**: If most share counts show 1 decimal (e.g. "2,177.0", "25,000.0"), but one reads "28370" instead of "2,837.0", fix it
+2. **Leading digit drops**: "2,755.0" may actually be "82,755.0" — verify using the Nominal Value column (nominal = shares * $0.01 par value). If nominal is "827.55", the shares are 82,755.0 not 2,755.0
+3. **Character substitution**: 0<->O, 1<->l<->I, 5<->S, 8<->B, rn<->m are common OCR errors
+4. **Garbled text**: Reconstruct names from context. If a name appears cleanly on one page but garbled on another, use the clean version
+5. **Table flattening**: OCR destroys table structure — carefully reconstruct Member | Shares | Class | Nominal Value relationships
+
+## ENTITY vs INDIVIDUAL CLASSIFICATION
+Entity indicators: Ltd, LLC, L.L.C., Limited, Inc, Corp, L.P., Fund, Trust, SPC, Holdings, Partners, Ventures, Capital, Investment(s), Company, WLL, FZCO, FZE, RSC, C.V.
+Individual indicators: First name + last name pattern with no corporate suffix
+
+## SPECIAL RULES
+- "Exempted Company" in Cayman Islands -> entityType "holding" (or "other" if unclear)
+- Extract ALL directors from "Register of Directors" section -> controllers field
+- Date conversion: "28 June 2012" -> "2012-06-28"
+- Empty string "" for undetectable fields
+- Include EVERY shareholder, even those with tiny percentages (ESOP holders, etc.)
+
+## OUTPUT SCHEMA
+${entitySchema}
+
+Return ONLY the JSON object.`;
+
+    const individualSystemPrompt = `You are an expert KYB document analyst. Extract structured personal identification data from OCR text of ID documents (passports, national IDs, residence visas).
+
+## YOUR TASK
+Extract all fields and return ONLY valid JSON. No markdown, no explanation, no preamble.
+
+## OCR ERROR CORRECTION
+- Fix character misreads (0<->O, 1<->l<->I, 5<->S)
+- Reconstruct names/numbers from surrounding context
+- Dates -> YYYY-MM-DD format
+
+## OUTPUT SCHEMA
+${individualSchema}
+
+Use empty string "" for any field not found. Return ONLY the JSON object.`;
+
+    const systemPrompt = isEntity ? entitySystemPrompt : individualSystemPrompt;
+
+    const userPrompt = isEntity
+      ? `Analyze this OCR text from a corporate document. Follow the share calculation methodology EXACTLY.
+
+CRITICAL INSTRUCTIONS:
+1. FIRST: Sum ALL shares held by ALL members across ALL classes to get total issued shares
+2. THEN: For each UNIQUE shareholder, sum their holdings across all classes
+3. THEN: Calculate ownership % = (shareholder total shares / grand total issued shares) * 100
+4. VERIFY: Your percentages must sum to approximately 100%
+
+If the document has a "Total Nominal Value" column and par value is $0.01 per share, you can cross-check: shares = nominal_value / 0.01. This helps catch OCR errors in share counts.
+
+Return ONLY the JSON object matching the schema.
+
+OCR TEXT:
+${ocrText.substring(0, 15000)}`
+      : `Extract individual identification fields from this OCR text. Return ONLY the JSON object matching the schema.
+
+OCR TEXT:
+${ocrText.substring(0, 15000)}`;
+
+    if (apiConfig.provider === 'openai') {
+      return await llmExtractOpenAI(systemPrompt, userPrompt);
+    } else {
+      return await llmExtractAnthropic(systemPrompt, userPrompt);
+    }
+  }
+
+  async function llmExtractAnthropic(systemPrompt, userPrompt) {
+    try {
+      currentAbortController = new AbortController();
+      const timeoutId = setTimeout(() => currentAbortController?.abort(), 60000);
+      const headers = {"Content-Type":"application/json"};
+      if (apiConfig.apiKey) {
+        headers["x-api-key"] = apiConfig.apiKey;
+        headers["anthropic-version"] = "2023-06-01";
+        headers["anthropic-dangerous-direct-browser-access"] = "true";
+      }
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers,
+        signal: currentAbortController.signal,
+        body: JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:2000,system:systemPrompt,messages:[{role:"user",content:userPrompt}]})
+      });
+      clearTimeout(timeoutId);
+      currentAbortController = null;
+      if(!response.ok){const errData=await response.json().catch(()=>({}));throw new Error(errData.error?.message||`API error ${response.status}`);}
+      const data = await response.json();
+      const text = (data.content||[]).map(b=>b.text||'').join('');
+      return parseJsonResponse(text);
+    } catch(err) {
+      currentAbortController = null;
+      if(err.name === 'AbortError') throw new Error('Request timed out after 60 seconds. Try again or fill in details manually.');
+      throw new Error('Anthropic API failed: '+err.message);
+    }
+  }
+
+  async function llmExtractOpenAI(systemPrompt, userPrompt) {
+    try {
+      currentAbortController = new AbortController();
+      const timeoutId = setTimeout(() => currentAbortController?.abort(), 60000);
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method:"POST",
+        headers:{"Content-Type":"application/json","Authorization":"Bearer "+apiConfig.apiKey},
+        signal: currentAbortController.signal,
+        body: JSON.stringify({model:"gpt-4o-mini",max_tokens:2000,messages:[{role:"system",content:systemPrompt},{role:"user",content:userPrompt}]})
+      });
+      clearTimeout(timeoutId);
+      currentAbortController = null;
+      if(!response.ok){const errData=await response.json().catch(()=>({}));throw new Error(errData.error?.message||`API error ${response.status}`);}
+      const data = await response.json();
+      const text = data.choices?.[0]?.message?.content||'';
+      return parseJsonResponse(text);
+    } catch(err) {
+      currentAbortController = null;
+      if(err.name === 'AbortError') throw new Error('Request timed out after 60 seconds. Try again or fill in details manually.');
+      throw new Error('OpenAI API failed: '+err.message);
+    }
+  }
+
+  function parseJsonResponse(text) {
+    let clean = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+    try { return JSON.parse(clean); } catch(e) { /* continue */ }
+    const match = clean.match(/\{[\s\S]*\}/);
+    if (match) {
+      try { return JSON.parse(match[0]); } catch(e2) { /* continue */ }
+      let fixed = match[0];
+      fixed = fixed.replace(/,\s*([\]}])/g, '$1');
+      fixed = fixed.replace(/[\x00-\x1F\x7F]/g, m => m === '\n' || m === '\t' ? m : '');
+      try { return JSON.parse(fixed); } catch(e3) { /* continue */ }
+    }
+    throw new Error('Could not parse AI response as JSON. First 300 chars: ' + text.substring(0, 300));
+  }
+
+  function applyExtraction(nodeId) {
+    const es=extractState[nodeId];if(!es||!es.extracted)return;
+    const n=layers[nodeId];if(!n)return;
+    const isEntity = n.type === 'Root' || n.type === 'Entity';
+
+    // Read reviewed field values from the form
+    const reviewFields=mainContent.querySelectorAll('[data-review-field]');
+    const reviewed={};
+    reviewFields.forEach(f=>{reviewed[f.dataset.reviewField]=f.value;});
+    const ext=es.extracted;
+
+    // Apply text fields to node data
+    for(const key of Object.keys(ext)){
+      if(key === 'shareholders') continue; // handle separately
+      const val=(reviewed[key]!==undefined&&reviewed[key]!=='')?reviewed[key]:ext[key];
+      if(val&&String(val).trim()&&n.data.hasOwnProperty(key))n.data[key]=val;
+    }
+    // Ensure controllers field exists
+    if(isEntity && !n.data.hasOwnProperty('controllers')) n.data.controllers = '';
+    if(reviewed.controllers !== undefined) n.data.controllers = reviewed.controllers;
+    else if(ext.controllers) n.data.controllers = ext.controllers;
+
+    if(n.data.legalName?.trim())n.label=n.data.legalName;
+    if(n.data.fullName?.trim())n.label=n.data.fullName;
+
+    // Apply shareholders (entities only)
+    if(isEntity && ext.shareholders && ext.shareholders.length > 0) {
+      // Read edited shareholder values from the review form
+      const shCount = ext.shareholders.length;
+      for(let i = 0; i < shCount; i++) {
+        const includeEl = mainContent.querySelector(`[data-sh-include="${i}"]`);
+        if(includeEl && !includeEl.checked) continue; // unchecked = skip
+
+        const nameEl = mainContent.querySelector(`[data-sh-name="${i}"]`);
+        const typeEl = mainContent.querySelector(`[data-sh-type="${i}"]`);
+        const pctEl = mainContent.querySelector(`[data-sh-pct="${i}"]`);
+
+        const shName = nameEl ? nameEl.value.trim() : (ext.shareholders[i].name || '').trim();
+        const shType = typeEl ? typeEl.value : (ext.shareholders[i].type || 'Individual');
+        const shPct = pctEl ? parseFloat(pctEl.value) : (parseFloat(ext.shareholders[i].ownershipPct) || 0);
+
+        if(!shName || shPct <= 0) continue;
+
+        // Check if this shareholder already exists (by name match)
+        const existingChild = n.children.find(cid => {
+          const c = layers[cid];
+          if(!c || c.type === 'CollectiveBottom') return false;
+          const cName = getName(c).toLowerCase().trim();
+          return cName === shName.toLowerCase().trim();
+        });
+        if(existingChild) continue; // skip duplicates
+
+        // Check total allocation
+        const currentTotal = n.children.reduce((s, cid) => {
+          const c = layers[cid];
+          return s + (c && c.type !== 'CollectiveBottom' ? c.ownPct : 0);
+        }, 0);
+        if(round2(currentTotal + shPct) > 100) continue; // would exceed 100%
+
+        // Create new shareholder node
+        const newId = generateId(shType === 'Individual' ? 'Individual' : 'Entity');
+        const effPct = round2(shPct * n.effPct / 100);
+        const defaultData = shType === 'Individual'
+          ? { fullName: shName, nationality:'', dob:'', idType:'', idNumber:'', idExpiry:'', address:'', notes:'' }
+          : { legalName: shName, tradeName:'', regNumber:'', jurisdiction:'', incorporationDate:'', entityType:'', address:'', controllers:'', notes:'' };
+
+        layers[newId] = { id:newId, type:shType==='Individual'?'Individual':'Entity', label:shName, parentId:n.id, layer:n.layer+1, ownPct:shPct, effPct, children:[], data:defaultData };
+
+        // Remove old CB
+        const cbIdx = n.children.findIndex(cid => layers[cid]?.type === 'CollectiveBottom');
+        if(cbIdx >= 0) { delete layers[n.children[cbIdx]]; n.children.splice(cbIdx, 1); }
+        n.children.push(newId);
+      }
+      // Recalculate collective bottom
+      updateCollectiveBottom(n.id);
+    }
+
+    es.appliedToForm=true;
+    render();
+  }
+
+  function flashError(id){const el=document.getElementById(id);if(el){el.style.borderColor='var(--red)';setTimeout(()=>{el.style.borderColor='';},1200);}}
+
+  function updateCollectiveBottom(parentId) {
+    const p=layers[parentId];if(!p)return;
+    const cbIdx=p.children.findIndex(cid=>layers[cid]?.type==='CollectiveBottom');
+    if(cbIdx>=0){delete layers[p.children[cbIdx]];p.children.splice(cbIdx,1);}
+    const allocated=round2(p.children.reduce((s,cid)=>s+(layers[cid]?.ownPct||0),0));
+    const remainder=round2(100-allocated);
+    if(remainder>0&&p.children.length>0){
+      const cbId=`CB_${parentId}`;
+      layers[cbId]={id:cbId,type:'CollectiveBottom',label:'Collective Bottom',parentId,layer:p.layer+1,ownPct:remainder,effPct:round2(remainder*p.effPct/100),children:[],data:{}};
+      p.children.push(cbId);
+    }
+  }
+
+  function deleteShareholder(parentId,childId) {
+    const p=layers[parentId];if(!p)return;
+    function removeTree(id){const nd=layers[id];if(!nd)return;nd.children.forEach(cid=>removeTree(cid));delete layers[id];delete docStore[id];delete extractState[id];}
+    removeTree(childId);
+    p.children=p.children.filter(cid=>cid!==childId);
+    updateCollectiveBottom(parentId);
+  }
+
+  function generateId(type){idCounter++;return `${type==='Individual'?'P':'E'}_${idCounter}`;}
+
+  document.getElementById('btn-reset').addEventListener('click',()=>{if(confirm('Reset all layers and data? This cannot be undone.')){initState();render();}});
+
+  /* ── Submit & Summary ──────────────────────────── */
+  const btnSubmit = document.getElementById('btn-submit');
+  const summaryModal = document.getElementById('summary-modal');
+  const summaryBody = document.getElementById('summary-body');
+  const summaryDate = document.getElementById('summary-date');
+  const btnSummaryClose = document.getElementById('summary-close');
+  const btnDownloadJson = document.getElementById('btn-download-json');
+  const btnCopyJson = document.getElementById('btn-copy-json');
+
+  let lastGeneratedJson = null;
+
+  function updateSubmitButton() {
+    const na = computeNextAction();
+    // Enable if at least root has a name and has children
+    const root = layers.root;
+    const rootHasName = !!(root.data.legalName?.trim());
+    const hasChildren = root.children.length > 0;
+    btnSubmit.disabled = !(rootHasName && hasChildren);
+  }
+
+  btnSubmit.addEventListener('click', () => {
+    lastGeneratedJson = generateKybJson();
+    renderSummary(lastGeneratedJson);
+    summaryModal.classList.add('open');
+    summaryDate.textContent = new Date().toLocaleString();
+  });
+
+  btnSummaryClose.addEventListener('click', () => { summaryModal.classList.remove('open'); });
+  summaryModal.addEventListener('click', e => { if (e.target === summaryModal) summaryModal.classList.remove('open'); });
+
+  btnDownloadJson.addEventListener('click', () => {
+    if (!lastGeneratedJson) return;
+    const blob = new Blob([JSON.stringify(lastGeneratedJson, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const rootName = (layers.root.data.legalName || 'kyb-submission').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+    a.href = url;
+    a.download = `${rootName}_kyb_${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+
+  btnCopyJson.addEventListener('click', () => {
+    if (!lastGeneratedJson) return;
+    navigator.clipboard.writeText(JSON.stringify(lastGeneratedJson, null, 2)).then(() => {
+      btnCopyJson.textContent = '✓ Copied!';
+      setTimeout(() => { btnCopyJson.textContent = 'Copy JSON'; }, 2000);
+    }).catch(() => {});
+  });
+
+  function generateKybJson() {
+    const now = new Date().toISOString();
+    const root = layers.root;
+
+    function buildNode(id) {
+      const n = layers[id]; if (!n) return null;
+      const node = {
+        id: n.id,
+        type: n.type,
+        layer: n.layer,
+        ownership: { directPct: n.ownPct, effectivePct: n.effPct },
+        data: { ...n.data },
+        documents: (docStore[id] || []).map(d => ({ name: d.name, type: d.type, size: d.size })),
+        shareholders: []
+      };
+      // Remove empty string fields from data
+      for (const [k, v] of Object.entries(node.data)) {
+        if (v === '') delete node.data[k];
+      }
+      n.children.forEach(cid => {
+        const child = buildNode(cid);
+        if (child) node.shareholders.push(child);
+      });
+      return node;
+    }
+
+    const structure = buildNode('root');
+
+    // Collect all UBOs (individuals with effective % >= 25)
+    const ubos = [];
+    const allIndividuals = [];
+    function collectPeople(id) {
+      const n = layers[id]; if (!n) return;
+      if (n.type === 'Individual') {
+        const person = { name: n.data.fullName || n.label, effectivePct: n.effPct, directPct: n.ownPct, layer: n.layer, parentEntity: getName(layers[n.parentId]), data: { ...n.data } };
+        allIndividuals.push(person);
+        if (n.effPct >= THRESH_UBO) ubos.push(person);
+      }
+      n.children.forEach(cid => collectPeople(cid));
+    }
+    collectPeople('root');
+
+    // Summary stats
+    let entCount = 0, indCount = 0, cbCount = 0;
+    Object.values(layers).forEach(n => {
+      if (n.type === 'Root' || n.type === 'Entity') entCount++;
+      else if (n.type === 'Individual') indCount++;
+      else if (n.type === 'CollectiveBottom') cbCount++;
+    });
+
+    return {
+      meta: {
+        generatedAt: now,
+        version: 'kyb-phase3-v1',
+        status: computeNextAction().done ? 'complete' : 'partial'
+      },
+      applicantCompany: {
+        legalName: root.data.legalName,
+        tradeName: root.data.tradeName || undefined,
+        regNumber: root.data.regNumber || undefined,
+        jurisdiction: root.data.jurisdiction || undefined,
+        incorporationDate: root.data.incorporationDate || undefined,
+        entityType: root.data.entityType || undefined,
+        address: root.data.address || undefined
+      },
+      summary: {
+        totalEntities: entCount,
+        totalIndividuals: indCount,
+        totalLayers: Math.max(...Object.values(layers).map(n => n.layer)),
+        uboCount: ubos.length,
+        collectiveBottomGroups: cbCount
+      },
+      ubos: ubos.map(u => ({ name: u.name, effectivePct: u.effectivePct, nationality: u.data.nationality, idType: u.data.idType, idNumber: u.data.idNumber })),
+      allIndividuals: allIndividuals.map(u => ({ name: u.name, effectivePct: u.effectivePct, directPct: u.directPct, layer: u.layer, parentEntity: u.parentEntity })),
+      ownershipStructure: structure
+    };
+  }
+
+  function renderSummary(json) {
+    let html = '';
+
+    // Overview section
+    html += `<div class="summary-section"><div class="summary-section-title">Submission Overview</div><div class="summary-card"><div class="summary-fields"><div class="summary-field"><span class="summary-field-label">Applicant Company</span><span class="summary-field-value">${esc(json.applicantCompany.legalName || '—')}</span></div><div class="summary-field"><span class="summary-field-label">Status</span><span class="summary-field-value" style="color:${json.meta.status==='complete'?'var(--green)':'var(--amber)'};">${json.meta.status === 'complete' ? '✓ Complete' : '◐ Partial'}</span></div><div class="summary-field"><span class="summary-field-label">Entities</span><span class="summary-field-value">${json.summary.totalEntities}</span></div><div class="summary-field"><span class="summary-field-label">Individuals</span><span class="summary-field-value">${json.summary.totalIndividuals}</span></div><div class="summary-field"><span class="summary-field-label">UBOs (≥25%)</span><span class="summary-field-value" style="color:var(--accent);font-weight:600;">${json.summary.uboCount}</span></div><div class="summary-field"><span class="summary-field-label">Ownership Layers</span><span class="summary-field-value">${json.summary.totalLayers}</span></div></div></div></div>`;
+
+    // Ownership tree
+    html += `<div class="summary-section"><div class="summary-section-title">Ownership Structure</div><div class="summary-tree">`;
+    function renderTreeNode(id, depth) {
+      const n = layers[id]; if (!n) return '';
+      const dotCls = n.type === 'Individual' ? 'individual' : n.type === 'CollectiveBottom' ? 'cb' : 'entity';
+      const name = getName(n);
+      const pctStr = n.layer > 0 ? `${n.ownPct.toFixed(2)}% → eff ${n.effPct.toFixed(2)}%` : '100%';
+      let h = `<div class="summary-tree-node" style="--s-indent:${depth}"><div class="summary-tree-dot summary-tree-dot--${dotCls}"></div><span class="summary-tree-name">${esc(name)}</span><span class="summary-tree-pct">${pctStr}</span></div>`;
+      n.children.forEach(cid => { h += renderTreeNode(cid, depth + 1); });
+      return h;
+    }
+    html += renderTreeNode('root', 0);
+    html += `</div></div>`;
+
+    // UBOs
+    if (json.ubos.length > 0) {
+      html += `<div class="summary-section"><div class="summary-section-title">Ultimate Beneficial Owners (≥25% effective)</div>`;
+      json.ubos.forEach(u => {
+        html += `<div class="summary-card"><div class="summary-card-header"><span class="summary-card-badge summary-card-badge--individual">UBO</span><span class="summary-card-name">${esc(u.name)}</span><span class="summary-card-meta">${u.effectivePct.toFixed(2)}% effective</span></div><div class="summary-fields"><div class="summary-field"><span class="summary-field-label">Nationality</span><span class="summary-field-value ${u.nationality?'':'empty'}">${esc(u.nationality)||'Not provided'}</span></div><div class="summary-field"><span class="summary-field-label">ID Type</span><span class="summary-field-value ${u.idType?'':'empty'}">${esc(u.idType)||'Not provided'}</span></div><div class="summary-field"><span class="summary-field-label">ID Number</span><span class="summary-field-value ${u.idNumber?'':'empty'}">${esc(u.idNumber)||'Not provided'}</span></div></div></div>`;
+      });
+      html += `</div>`;
+    }
+
+    // All entity/individual cards
+    html += `<div class="summary-section"><div class="summary-section-title">All Layers — Detailed</div>`;
+    function renderCardForNode(id) {
+      const n = layers[id]; if (!n || n.type === 'CollectiveBottom') return '';
+      const badgeCls = n.type === 'Individual' ? 'individual' : (n.type === 'Root' ? 'root' : 'entity');
+      const name = getName(n);
+      let fields = '';
+      if (n.type === 'Individual') {
+        const d = n.data;
+        fields = [
+          { l:'Full Name', v:d.fullName }, { l:'Nationality', v:d.nationality },
+          { l:'Date of Birth', v:d.dob }, { l:'ID Type', v:d.idType },
+          { l:'ID Number', v:d.idNumber }, { l:'ID Expiry', v:d.idExpiry },
+          { l:'Address', v:d.address, full:true }
+        ].map(f => `<div class="summary-field${f.full?' summary-field--full':''}"><span class="summary-field-label">${f.l}</span><span class="summary-field-value ${f.v?'':'empty'}">${esc(f.v)||'—'}</span></div>`).join('');
+      } else {
+        const d = n.data;
+        fields = [
+          { l:'Legal Name', v:d.legalName }, { l:'Trade Name', v:d.tradeName },
+          { l:'Reg Number', v:d.regNumber }, { l:'Jurisdiction', v:d.jurisdiction },
+          { l:'Incorporation Date', v:d.incorporationDate }, { l:'Entity Type', v:d.entityType },
+          { l:'Controllers', v:d.controllers, full:true },
+          { l:'Address', v:d.address, full:true }
+        ].map(f => `<div class="summary-field${f.full?' summary-field--full':''}"><span class="summary-field-label">${f.l}</span><span class="summary-field-value ${f.v?'':'empty'}">${esc(f.v)||'—'}</span></div>`).join('');
+      }
+      const docs = (docStore[id] || []);
+      const docNote = docs.length > 0 ? `<div style="margin-top:8px;font-family:var(--fm);font-size:9px;color:var(--txt-mute);">${docs.length} document${docs.length>1?'s':''} uploaded</div>` : '';
+      let h = `<div class="summary-card"><div class="summary-card-header"><span class="summary-card-badge summary-card-badge--${badgeCls}">${n.type==='Root'?'Root':n.type}</span><span class="summary-card-name">${esc(name)}</span>${n.layer>0?`<span class="summary-card-meta">${n.ownPct.toFixed(2)}% direct · ${n.effPct.toFixed(2)}% effective</span>`:''}</div><div class="summary-fields">${fields}</div>${docNote}</div>`;
+      n.children.forEach(cid => { h += renderCardForNode(cid); });
+      return h;
+    }
+    html += renderCardForNode('root');
+    html += `</div>`;
+
+    // JSON preview
+    html += `<div class="summary-section"><div class="summary-section-title">JSON Output Preview</div><div class="json-preview">${esc(JSON.stringify(json, null, 2))}</div></div>`;
+
+    summaryBody.innerHTML = html;
+  }
+
+  // Update submit button on every render
+  const origRender = render;
+  render = function() { origRender(); updateSubmitButton(); };
+
+  function round2(v){return Math.round(v*100)/100;}
+  function esc(s){return s?s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'):'';}
+  function formatSize(bytes){if(bytes<1024)return bytes+' B';if(bytes<1024*1024)return(bytes/1024).toFixed(1)+' KB';return(bytes/(1024*1024)).toFixed(1)+' MB';}
+
+  render();
+})();
+</script>
+</body>
+</html>
