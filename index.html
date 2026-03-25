@@ -1592,7 +1592,7 @@ INSTRUCTIONS:
         method:"POST",
         headers,
         signal: currentAbortController.signal,
-        body: JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:2000,system:systemPrompt,messages:[{role:"user",content:userPrompt}]})
+        body: JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:4096,system:systemPrompt,messages:[{role:"user",content:userPrompt}]})
       });
       clearTimeout(timeoutId);
       currentAbortController = null;
@@ -1615,7 +1615,7 @@ INSTRUCTIONS:
         method:"POST",
         headers:{"Content-Type":"application/json","Authorization":"Bearer "+apiConfig.apiKey},
         signal: currentAbortController.signal,
-        body: JSON.stringify({model:"gpt-4o-mini",max_tokens:2000,messages:[{role:"system",content:systemPrompt},{role:"user",content:userPrompt}]})
+        body: JSON.stringify({model:"gpt-4o-mini",max_tokens:4096,messages:[{role:"system",content:systemPrompt},{role:"user",content:userPrompt}]})
       });
       clearTimeout(timeoutId);
       currentAbortController = null;
@@ -1632,15 +1632,41 @@ INSTRUCTIONS:
 
   function parseJsonResponse(text) {
     let clean = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+    // 1. Try direct parse
     try { return JSON.parse(clean); } catch(e) { /* continue */ }
+    // 2. Extract outermost JSON object
     const match = clean.match(/\{[\s\S]*\}/);
     if (match) {
       try { return JSON.parse(match[0]); } catch(e2) { /* continue */ }
+      // 3. Fix trailing commas
       let fixed = match[0];
       fixed = fixed.replace(/,\s*([\]}])/g, '$1');
       fixed = fixed.replace(/[\x00-\x1F\x7F]/g, m => m === '\n' || m === '\t' ? m : '');
       try { return JSON.parse(fixed); } catch(e3) { /* continue */ }
     }
+    // 4. Handle truncated JSON (token limit cut off mid-response)
+    // Try to close open arrays and objects
+    let truncated = clean;
+    if (!truncated.startsWith('{')) {
+      const idx = truncated.indexOf('{');
+      if (idx >= 0) truncated = truncated.substring(idx);
+    }
+    // Remove trailing incomplete string/value
+    truncated = truncated.replace(/,\s*"[^"]*$/, '');  // trailing key start
+    truncated = truncated.replace(/,\s*\{[^}]*$/, ''); // trailing incomplete object
+    truncated = truncated.replace(/,\s*$/, '');         // trailing comma
+    // Count unclosed brackets and close them
+    let opens = 0, openArr = 0;
+    for (const ch of truncated) {
+      if (ch === '{') opens++;
+      else if (ch === '}') opens--;
+      else if (ch === '[') openArr++;
+      else if (ch === ']') openArr--;
+    }
+    while (openArr > 0) { truncated += ']'; openArr--; }
+    while (opens > 0) { truncated += '}'; opens--; }
+    try { return JSON.parse(truncated); } catch(e4) { /* continue */ }
+
     throw new Error('Could not parse AI response as JSON. First 300 chars: ' + text.substring(0, 300));
   }
 
