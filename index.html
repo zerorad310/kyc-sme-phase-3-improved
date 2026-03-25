@@ -1050,18 +1050,18 @@
 
   async function llmExtract(ocrText, isEntity) {
     const entitySchema = `{
-  "legalName": "string — registered legal name of the company",
-  "tradeName": "string — trade name / DBA if different, or empty string",
-  "regNumber": "string — registration or license number",
-  "jurisdiction": "string — jurisdiction of incorporation (e.g. Cayman Islands, DIFC, ADGM, BVI)",
-  "incorporationDate": "string — YYYY-MM-DD format, or empty string",
-  "entityType": "string — one of: llc|fzllc|shareholding|holding|soleEstablishment|branch|trust|foundation|other",
-  "address": "string — registered address",
-  "controllers": "string — comma-separated list of ALL directors, managers, officers, authorized signatories",
+  "legalName": "string",
+  "tradeName": "string",
+  "regNumber": "string",
+  "jurisdiction": "string",
+  "incorporationDate": "string — YYYY-MM-DD or empty",
+  "entityType": "llc|fzllc|shareholding|holding|soleEstablishment|branch|trust|foundation|other",
+  "address": "string",
+  "controllers": "string — comma-separated directors/managers/officers/signatories",
   "shareholders": [
     {
-      "name": "string — exact name from document (correct obvious OCR typos)",
-      "type": "string — 'Entity' or 'Individual'",
+      "name": "string",
+      "type": "Entity|Individual",
       "ownershipPct": 0.00
     }
   ]
@@ -1076,51 +1076,102 @@
   "address": "string — residential address"
 }`;
 
-    const entitySystemPrompt = `You are an expert KYB (Know Your Business) document analyst specializing in extracting structured corporate data from OCR text of official documents (certificates of incumbency, trade licenses, MOAs, share certificates, etc.).
+    const entitySystemPrompt = `You are an expert KYB (Know Your Business) document analyst specializing in extracting structured corporate data from OCR text of official documents such as certificates of incumbency, trade licenses, MOAs, shareholder registers, cap tables, share certificates, and similar corporate records.
 
-## YOUR TASK
-Extract ALL structured fields from the OCR text and return ONLY valid JSON matching the schema below. No markdown fences, no explanation, no preamble — just the JSON object.
+Your task is to extract structured corporate data from OCR text and return ONLY valid JSON matching the schema below. No markdown, no explanation, no preamble.
 
-## CRITICAL: SHARE-TO-PERCENTAGE CALCULATION METHODOLOGY
-When the document contains a shareholder register or ownership information, follow this EXACT process:
+## CRITICAL OWNERSHIP CALCULATION RULES
 
-### Step 1: Identify Total Shares
-- Look for "authorised capital", "divided into X shares", or a running member register
-- If multiple share CLASSES exist (Common, Preferred Series A/B/C, ESOP, etc.), compute TOTAL ISSUED shares by summing every individual shareholding listed in the register
-- IMPORTANT: The "authorised" count may exceed issued shares. Use actual ISSUED shares (the sum of all holdings in the register) as the denominator
+When ownership information is present, you must determine the denominator using the following priority order:
 
-### Step 2: For Each Shareholder
-- The SAME person/entity may appear MULTIPLE TIMES for different share classes — you MUST merge them
-- Sum ALL their shares across ALL classes (Common + ESOP + Series A + Series B + etc.)
-- Calculate: ownershipPct = (their total shares / total issued shares) * 100
-- Round to 2 decimal places
+### 1) HIGHEST PRIORITY: issued/outstanding holdings listed in a register or shareholder table
 
-### Step 3: Cross-Validate
-- All ownershipPct values MUST sum to approximately 100% (98-100% acceptable due to rounding)
-- If they don't, you made a calculation error — recheck your arithmetic
+If the document contains a shareholder register, register of members, member list, capitalization table, or any table/list showing actual current holdings, then:
+- Extract every holding row
+- Reconstruct the table carefully even if OCR has flattened it
+- Sum all holdings across all shareholders and all share classes
+- Use that sum as the ownership denominator
 
-### Step 4: Name Deduplication
-- Merge OCR variants of the same name (e.g., "Bazookat Equity Ltd" and "Bazooka Equity Ltd." are the same entity — use the cleaner version)
-- Use the cleanest/most complete version of each name
+### 2) SECOND PRIORITY: explicit issued / outstanding / subscribed / paid-up share total
+
+If no usable shareholder register exists, but the document explicitly states issued shares, outstanding shares, subscribed capital, or paid-up capital, then:
+- Use that explicitly issued/outstanding/subscribed/paid-up total as the denominator
+
+### 3) LOWEST PRIORITY: authorised capital
+
+Authorised capital is NOT the ownership denominator unless the document clearly states that the authorised shares are also the issued/outstanding shares.
+- Do NOT use authorised capital merely because it is the only large share number visible
+- Do NOT assume that all authorised shares have been issued
+
+## SHAREHOLDER MERGING RULES
+
+A single shareholder may appear multiple times across:
+- different share classes
+- different pages
+- slightly different OCR spellings
+
+You must:
+- merge all rows belonging to the same shareholder
+- sum all their holdings across all classes
+- use the cleanest version of the name
+
+## REQUIRED CALCULATION PROCESS
+
+When shareholder data exists, follow this exact order:
+
+Step 1: Extract every shareholder/member row you can identify.
+For each row capture:
+- shareholder name
+- share class if present
+- share count
+- nominal value if present
+
+Step 2: Normalize and merge names.
+Merge obvious OCR variants of the same shareholder.
+
+Step 3: Determine the denominator.
+Use the priority order above:
+- register/member list total (sum of all listed holdings)
+- else explicit issued/outstanding/subscribed/paid-up total
+- else do NOT use authorised capital unless clearly confirmed as issued/outstanding
+
+Step 4: Calculate each shareholder's total holdings.
+For each unique shareholder, sum holdings across all classes.
+
+Step 5: Calculate ownership percentage.
+ownershipPct = (shareholder total holdings / denominator) * 100
+Round to 2 decimal places.
+
+Step 6: Sanity check.
+- Ownership percentages should sum to approximately 100% when the full shareholder register is available
+- If the sum is far from 100%, you have used the wrong denominator or missed shareholders — recheck
+- Do not silently substitute authorised capital as denominator when a register is available
 
 ## OCR ERROR CORRECTION RULES
-OCR text WILL contain errors. Apply these corrections:
-1. **Decimal drops**: If most share counts show 1 decimal (e.g. "2,177.0", "25,000.0"), but one reads "28370" instead of "2,837.0", fix it
-2. **Leading digit drops**: "2,755.0" may actually be "82,755.0" — verify using the Nominal Value column (nominal = shares * $0.01 par value). If nominal is "827.55", the shares are 82,755.0 not 2,755.0
-3. **Character substitution**: 0<->O, 1<->l<->I, 5<->S, 8<->B, rn<->m are common OCR errors
-4. **Garbled text**: Reconstruct names from context. If a name appears cleanly on one page but garbled on another, use the clean version
-5. **Table flattening**: OCR destroys table structure — carefully reconstruct Member | Shares | Class | Nominal Value relationships
+
+OCR text may contain errors. Correct obvious OCR mistakes using nearby context and arithmetic checks:
+- Dropped decimals: if most values show consistent decimal places but one does not, fix it
+- Dropped leading digits: verify using nominal value column if available (nominal = shares * par value)
+- Character substitutions: O/0, I/1/l, S/5, B/8, rn/m
+- Broken table alignment and row wrapping across lines
+- Same name spelled differently in different places — use the cleanest version
 
 ## ENTITY vs INDIVIDUAL CLASSIFICATION
-Entity indicators: Ltd, LLC, L.L.C., Limited, Inc, Corp, L.P., Fund, Trust, SPC, Holdings, Partners, Ventures, Capital, Investment(s), Company, WLL, FZCO, FZE, RSC, C.V.
-Individual indicators: First name + last name pattern with no corporate suffix
+
+Entity indicators: Ltd, LLC, L.L.C., Limited, Inc, Corp, Company, Holdings, Holding, Investment, Investments, Ventures, Capital, Partners, SPC, Fund, Trust, Foundation, WLL, FZCO, FZE, RSC, C.V., L.P.
+Individual indicators: person-style names without corporate suffixes
 
 ## SPECIAL RULES
+- Do not confuse share class totals with overall ownership denominator unless all classes are included
+- Do not confuse authorised capital with issued/outstanding capital
+- If only one class total is stated in an authorised-capital sentence, that is NOT the total company share count
+- If the document provides an actual member register, prefer that over summary capital language
+- Extract all directors/managers/officers/signatories into controllers when available
 - "Exempted Company" in Cayman Islands -> entityType "holding" (or "other" if unclear)
-- Extract ALL directors from "Register of Directors" section -> controllers field
-- Date conversion: "28 June 2012" -> "2012-06-28"
-- Empty string "" for undetectable fields
-- Include EVERY shareholder, even those with tiny percentages (ESOP holders, etc.)
+- Dates must be YYYY-MM-DD. Convert formats like "28 June 2012" -> "2012-06-28"
+- Use empty string "" for undetectable scalar fields
+- Use empty array [] only if no shareholder information exists at all
+- Include EVERY shareholder, even those with tiny percentages
 
 ## OUTPUT SCHEMA
 ${entitySchema}
@@ -1145,17 +1196,28 @@ Use empty string "" for any field not found. Return ONLY the JSON object.`;
     const systemPrompt = isEntity ? entitySystemPrompt : individualSystemPrompt;
 
     const userPrompt = isEntity
-      ? `Analyze this OCR text from a corporate document. Follow the share calculation methodology EXACTLY.
+      ? `Analyze this OCR text from a corporate document and return ONLY the JSON object matching the schema.
 
-CRITICAL INSTRUCTIONS:
-1. FIRST: Sum ALL shares held by ALL members across ALL classes to get total issued shares
-2. THEN: For each UNIQUE shareholder, sum their holdings across all classes
-3. THEN: Calculate ownership % = (shareholder total shares / grand total issued shares) * 100
-4. VERIFY: Your percentages must sum to approximately 100%
+IMPORTANT OWNERSHIP INSTRUCTIONS:
 
-If the document has a "Total Nominal Value" column and par value is $0.01 per share, you can cross-check: shares = nominal_value / 0.01. This helps catch OCR errors in share counts.
+1. First identify whether the document contains:
+   - a shareholder register / member register / cap table / shareholder list
+   - or only capital summary language such as authorised capital
 
-Return ONLY the JSON object matching the schema.
+2. If a shareholder register or member list is present:
+   - use the sum of all listed current holdings across all shareholders and all classes as the denominator
+
+3. If no register is present, but issued/outstanding/subscribed/paid-up shares are explicitly stated:
+   - use that issued/outstanding/subscribed/paid-up total as the denominator
+
+4. Do NOT use authorised capital as the denominator unless the document clearly states those authorised shares are also issued/outstanding
+
+5. Merge the same shareholder appearing across multiple classes, pages, or OCR variants
+
+6. Before finalizing:
+   - verify that the percentages are reasonable
+   - when a full shareholder register is present, the percentages should sum to approximately 100%
+   - if they do not, you have likely used the wrong denominator — recheck
 
 OCR TEXT:
 ${ocrText.substring(0, 15000)}`
