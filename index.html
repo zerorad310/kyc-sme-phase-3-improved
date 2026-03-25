@@ -678,13 +678,14 @@
   /* ── Page ──────────────────────────────────────── */
   function renderPage() {
     const n=layers[activeLayerId]; if(!n) return;
+    const scrollPos = mainContent.scrollTop;
     const breadcrumb=buildBreadcrumb(activeLayerId);
     const typeClass=n.type==='Individual'?'individual':(n.type==='Root'?'root':'entity');
     const typeLabel=n.type==='Root'?'Root Entity':n.type;
     const displayName=getName(n);
     const isEntity=n.type==='Root'||n.type==='Entity';
 
-    let html=`<div class="page-hdr fade-in"><div class="page-breadcrumb">${breadcrumb}</div><div class="page-title-row"><span class="page-type-badge page-type-badge--${typeClass}">${typeLabel}</span><span class="page-title">${esc(displayName)}</span></div><div class="page-subtitle">Layer ${n.layer}${n.parentId?' · Shareholder of '+esc(getName(layers[n.parentId])):''}</div></div>`;
+    let html=`<div class="page-hdr"><div class="page-breadcrumb">${breadcrumb}</div><div class="page-title-row"><span class="page-type-badge page-type-badge--${typeClass}">${typeLabel}</span><span class="page-title">${esc(displayName)}</span></div><div class="page-subtitle">Layer ${n.layer}${n.parentId?' · Shareholder of '+esc(getName(layers[n.parentId])):''}</div></div>`;
     let stepIdx=1;
     html+=renderDocUploadStep(n,stepIdx++);
     html+=renderExtractionStep(n,stepIdx++);
@@ -696,6 +697,7 @@
     html+='<div class="page-bottom-spacer"></div>';
     mainContent.innerHTML=html;
     if(activeLayerId !== lastRenderedLayerId) { mainContent.scrollTop=0; lastRenderedLayerId=activeLayerId; }
+    else { mainContent.scrollTop = scrollPos; }
     wireFormEvents(n);
     wireDocEvents(n);
     wireExtractionEvents(n);
@@ -716,7 +718,7 @@
     const docLabel=n.type==='Individual'?'passport, national ID, residence visa':'trade license, certificate of incorporation, MOA';
     let docListHtml='';
     if(hasDocs){docListHtml=`<div class="doc-list">${docs.map(d=>{const isPdf=d.type==='application/pdf';return `<div class="doc-item"><div class="doc-icon ${isPdf?'doc-icon--pdf':'doc-icon--img'}">${isPdf?'◻':'▣'}</div><div class="doc-info"><div class="doc-name">${esc(d.name)}</div><div class="doc-meta"><span>${formatSize(d.size)}</span><span>${isPdf?'PDF':'Image'}</span></div></div><button class="doc-remove" data-doc-remove="${d.id}" title="Remove">✕</button></div>`;}).join('')}</div>`;}
-    return `<div class="step fade-in"><div class="step-header"><div class="step-num ${numCls}">${stepIdx}</div><span class="step-title">Step ${stepIdx} · <span class="step-title-main">Document Upload</span></span><div class="step-line"></div>${hasDocs?`<span class="step-badge step-badge--docs">${docs.length} file${docs.length>1?'s':''}</span>`:''}</div><div class="step-body"><div class="drop-zone" id="drop-zone"><input type="file" id="file-input" multiple accept=".pdf,.png,.jpg,.jpeg,.webp"/><div class="drop-zone-icon">↑</div><div class="drop-zone-text">Drop files here or <strong>click to browse</strong><br/>Upload ${docLabel}</div><div class="drop-zone-hint">Supports PDF, PNG, JPG · Max 10 MB per file</div></div>${docListHtml}</div></div>`;
+    return `<div class="step"><div class="step-header"><div class="step-num ${numCls}">${stepIdx}</div><span class="step-title">Step ${stepIdx} · <span class="step-title-main">Document Upload</span></span><div class="step-line"></div>${hasDocs?`<span class="step-badge step-badge--docs">${docs.length} file${docs.length>1?'s':''}</span>`:''}</div><div class="step-body"><div class="drop-zone" id="drop-zone"><input type="file" id="file-input" multiple accept=".pdf,.png,.jpg,.jpeg,.webp"/><div class="drop-zone-icon">↑</div><div class="drop-zone-text">Drop files here or <strong>click to browse</strong><br/>Upload ${docLabel}</div><div class="drop-zone-hint">Supports PDF, PNG, JPG · Max 10 MB per file</div></div>${docListHtml}</div></div>`;
   }
 
   /* ── Step 2: Extraction ────────────────────────── */
@@ -729,7 +731,7 @@
     const isError=es.status==='error';
     const isApplied=es.appliedToForm;
 
-    if(!hasDocs){return `<div class="step locked fade-in"><div class="step-header"><div class="step-num step-num--locked">${stepIdx}</div><span class="step-title">Step ${stepIdx} · <span class="step-title-main">AI Extraction & Review</span></span><div class="step-line"></div><span class="step-badge step-badge--live">AI-Powered</span></div><div class="step-body"><div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:24px;border:1px dashed var(--bdr-mid);border-radius:8px;"><div style="font-size:18px;opacity:.25;">◎</div><div style="font-family:var(--fm);font-size:11px;color:var(--txt-mute);text-align:center;">Upload documents in Step 1 to enable AI-powered field extraction.</div></div></div></div>`;}
+    if(!hasDocs){return `<div class="step locked"><div class="step-header"><div class="step-num step-num--locked">${stepIdx}</div><span class="step-title">Step ${stepIdx} · <span class="step-title-main">AI Extraction & Review</span></span><div class="step-line"></div><span class="step-badge step-badge--live">AI-Powered</span></div><div class="step-body"><div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:24px;border:1px dashed var(--bdr-mid);border-radius:8px;"><div style="font-size:18px;opacity:.25;">◎</div><div style="font-family:var(--fm);font-size:11px;color:var(--txt-mute);text-align:center;">Upload documents in Step 1 to enable AI-powered field extraction.</div></div></div></div>`;}
 
     let numCls='step-num--active';
     if(isProcessing)numCls='step-num--processing';
@@ -766,7 +768,7 @@
         ? (llmStep === 1 ? 'Extracting raw shareholder rows from OCR text' : 'Merging shareholders & calculating ownership percentages')
         : 'Extracting structured fields from OCR text';
       // Progress ring: fills over ~60s per step as an estimate
-      const pctFill = llmActive ? Math.min(95, Math.round((elapsed / 60) * 100)) : 0;
+      const pctFill = llmActive ? Math.min(95, Math.round((elapsed / 120) * 100)) : 0;
       const circumference = 2 * Math.PI * 15; // r=15
       const dashOffset = circumference - (pctFill / 100) * circumference;
       const progressRingSvg = `<div class="llm-progress-wrap"><svg class="llm-progress-ring" width="36" height="36" viewBox="0 0 36 36"><circle class="llm-progress-ring-bg" cx="18" cy="18" r="15"/><circle class="llm-progress-ring-fill" cx="18" cy="18" r="15" stroke-dasharray="${circumference.toFixed(1)}" stroke-dashoffset="${dashOffset.toFixed(1)}"/></svg></div>`;
@@ -784,7 +786,7 @@
       bodyHtml=`<div class="mat-banner mat-banner--green"><span class="mat-icon">✓</span><div class="mat-body"><div class="mat-title">Extracted data applied</div><div class="mat-desc">AI-extracted fields have been applied to the detail form below. You can continue editing there.</div></div></div>${es.ocrText?`<details class="ocr-raw-toggle"><summary>View raw OCR text</summary><div class="ocr-raw-text">${esc(es.ocrText)}</div></details>`:''}<div style="margin-top:10px;display:flex;gap:8px;"><button class="btn btn-ghost btn-sm" id="btn-re-extract">↻ Re-run Extraction</button>${es.ocrText?'<button class="btn btn-ghost btn-sm" id="btn-dl-ocr">↓ Download OCR Text</button>':''}</div>`;
     }
 
-    return `<div class="step fade-in"><div class="step-header"><div class="step-num ${numCls}">${stepIdx}</div><span class="step-title">Step ${stepIdx} · <span class="step-title-main">AI Extraction & Review</span></span><div class="step-line"></div><span class="step-badge step-badge--live">AI-Powered</span></div><div class="step-body">${bodyHtml}</div></div>`;
+    return `<div class="step"><div class="step-header"><div class="step-num ${numCls}">${stepIdx}</div><span class="step-title">Step ${stepIdx} · <span class="step-title-main">AI Extraction & Review</span></span><div class="step-line"></div><span class="step-badge step-badge--live">AI-Powered</span></div><div class="step-body">${bodyHtml}</div></div>`;
   }
 
   function renderReviewForm(n,es) {
@@ -837,7 +839,7 @@
     } else {
       fieldsHtml=`<div class="form-grid"><div class="fg"><label class="fl">Legal Name</label><input class="inp" data-field="legalName" value="${esc(n.data.legalName||'')}" placeholder="Registered legal name…"/></div><div class="fg"><label class="fl">Trade Name <span class="fl-opt">(optional)</span></label><input class="inp" data-field="tradeName" value="${esc(n.data.tradeName||'')}" placeholder="DBA / trade name…"/></div><div class="fg"><label class="fl">Registration Number</label><input class="inp" data-field="regNumber" value="${esc(n.data.regNumber||'')}" placeholder="License / reg #…"/></div><div class="fg"><label class="fl">Jurisdiction</label><input class="inp" data-field="jurisdiction" value="${esc(n.data.jurisdiction||'')}" placeholder="e.g. DIFC, ADGM, BVI…"/></div><div class="fg"><label class="fl">Incorporation Date</label><input class="inp" type="date" data-field="incorporationDate" value="${n.data.incorporationDate||''}"/></div><div class="fg"><label class="fl">Entity Type</label><select class="sel" data-field="entityType"><option value="">Select…</option><option value="llc" ${n.data.entityType==='llc'?'selected':''}>LLC</option><option value="fzllc" ${n.data.entityType==='fzllc'?'selected':''}>Free Zone LLC</option><option value="shareholding" ${n.data.entityType==='shareholding'?'selected':''}>Shareholding Co.</option><option value="holding" ${n.data.entityType==='holding'?'selected':''}>Holding Company</option><option value="soleEstablishment" ${n.data.entityType==='soleEstablishment'?'selected':''}>Sole Establishment</option><option value="branch" ${n.data.entityType==='branch'?'selected':''}>Branch</option><option value="trust" ${n.data.entityType==='trust'?'selected':''}>Trust</option><option value="foundation" ${n.data.entityType==='foundation'?'selected':''}>Foundation</option><option value="other" ${n.data.entityType==='other'?'selected':''}>Other</option></select></div><div class="fg fg-full"><label class="fl">Registered Address</label><input class="inp" data-field="address" value="${esc(n.data.address||'')}" placeholder="Full registered address…"/></div><div class="fg fg-full"><label class="fl">Controllers / Directors / Signatories</label><input class="inp" data-field="controllers" value="${esc(n.data.controllers||'')}" placeholder="Directors, managers, authorized signatories…"/></div><div class="fg fg-full"><label class="fl">Notes <span class="fl-opt">(optional)</span></label><textarea class="ta" data-field="notes" placeholder="Additional notes…">${esc(n.data.notes||'')}</textarea></div></div>`;
     }
-    return `<div class="step fade-in"><div class="step-header"><div class="step-num ${numCls}">${stepIdx}</div><span class="step-title">Step ${stepIdx} · <span class="step-title-main">${stepLabel}</span></span><div class="step-line"></div><span class="save-flash" id="save-flash-details">✓ saved</span></div><div class="step-body">${fieldsHtml}</div></div>`;
+    return `<div class="step"><div class="step-header"><div class="step-num ${numCls}">${stepIdx}</div><span class="step-title">Step ${stepIdx} · <span class="step-title-main">${stepLabel}</span></span><div class="step-line"></div><span class="save-flash" id="save-flash-details">✓ saved</span></div><div class="step-body">${fieldsHtml}</div></div>`;
   }
 
   /* ── Step 4: Ownership ─────────────────────────── */
@@ -847,7 +849,7 @@
     const chain=[]; let cur=n.id;
     while(cur){const nd=layers[cur];if(!nd)break;chain.unshift(nd);cur=nd.parentId;}
     const chainHtml=chain.map(c=>`<span>${esc(getName(c))}</span>`).join('<span class="chain-arrow">→</span>');
-    return `<div class="step fade-in"><div class="step-header"><div class="step-num step-num--done">${stepIdx}</div><span class="step-title">Step ${stepIdx} · <span class="step-title-main">Ownership & Relationship</span></span><div class="step-line"></div></div><div class="step-body"><div class="own-display"><span class="own-pct-big ${pctColor}">${n.ownPct.toFixed(2)}%</span><div class="own-details"><div class="own-detail-row"><strong>Direct ownership</strong> of ${esc(parentName)}</div><div class="own-detail-row">Effective: <strong>${n.effPct.toFixed(2)}%</strong> of Applicant Company</div><div class="own-detail-row">Layer: <strong>${n.layer}</strong></div></div></div><div class="own-chain"><div class="own-chain-label">Ownership Chain</div><div class="own-chain-path">${chainHtml}</div></div></div></div>`;
+    return `<div class="step"><div class="step-header"><div class="step-num step-num--done">${stepIdx}</div><span class="step-title">Step ${stepIdx} · <span class="step-title-main">Ownership & Relationship</span></span><div class="step-line"></div></div><div class="step-body"><div class="own-display"><span class="own-pct-big ${pctColor}">${n.ownPct.toFixed(2)}%</span><div class="own-details"><div class="own-detail-row"><strong>Direct ownership</strong> of ${esc(parentName)}</div><div class="own-detail-row">Effective: <strong>${n.effPct.toFixed(2)}%</strong> of Applicant Company</div><div class="own-detail-row">Layer: <strong>${n.layer}</strong></div></div></div><div class="own-chain"><div class="own-chain-label">Ownership Chain</div><div class="own-chain-path">${chainHtml}</div></div></div></div>`;
   }
 
   /* ── Step 5: Shareholders ──────────────────────── */
@@ -876,7 +878,7 @@
     const pctBar=children.length>0?`<div class="pct-summary"><div class="pct-bar-wrap"><div class="pct-bar-fill ${pctClass}" style="width:${Math.min(allocPct,100)}%"></div></div><span class="pct-label" style="color:var(--${pctClass==='over'?'red':pctClass==='exact'?'green':pctClass==='near'?'amber':'txt-dim'})">${allocPct.toFixed(2)}%</span><span class="pct-remainder">${allocPct<100?round2(100-allocPct).toFixed(2)+'% unallocated':allocPct===100?'Fully allocated':'Over-allocated!'}</span></div>`:'';
 
     const isFormOpen=addFormOpen[n.id]||false;
-    return `<div class="step fade-in"><div class="step-header"><div class="step-num ${numCls}">${stepIdx}</div><span class="step-title">Step ${stepIdx} · <span class="step-title-main">Shareholders</span></span><div class="step-line"></div><span class="step-badge step-badge--count">${nonCB.length} declared</span></div><div class="step-body">${bannerHtml}${tableHtml}${pctBar}<div class="sh-add-area"><button class="sh-add-btn" id="sh-add-toggle" ${isFormOpen?'style="display:none"':''}><span class="plus">+</span> Add Shareholder</button><div class="sh-add-form ${isFormOpen?'open':''}" id="sh-add-form"><div class="form-grid"><div class="fg"><label class="fl">Type</label><select class="sel" id="add-type"><option value="Entity">Entity</option><option value="Individual">Individual</option></select></div><div class="fg"><label class="fl">Ownership %</label><input class="inp" id="add-pct" type="number" min="0.01" max="100" step="0.01" placeholder="0.00"/></div><div class="fg fg-full"><label class="fl">Name</label><input class="inp" id="add-name" placeholder="Legal name or full name…"/></div></div><div class="sh-add-actions"><button class="btn btn-ghost btn-sm" id="add-cancel">Cancel</button><button class="btn btn-primary btn-sm" id="add-confirm">Add Shareholder</button></div></div></div></div></div>`;
+    return `<div class="step"><div class="step-header"><div class="step-num ${numCls}">${stepIdx}</div><span class="step-title">Step ${stepIdx} · <span class="step-title-main">Shareholders</span></span><div class="step-line"></div><span class="step-badge step-badge--count">${nonCB.length} declared</span></div><div class="step-body">${bannerHtml}${tableHtml}${pctBar}<div class="sh-add-area"><button class="sh-add-btn" id="sh-add-toggle" ${isFormOpen?'style="display:none"':''}><span class="plus">+</span> Add Shareholder</button><div class="sh-add-form ${isFormOpen?'open':''}" id="sh-add-form"><div class="form-grid"><div class="fg"><label class="fl">Type</label><select class="sel" id="add-type"><option value="Entity">Entity</option><option value="Individual">Individual</option></select></div><div class="fg"><label class="fl">Ownership %</label><input class="inp" id="add-pct" type="number" min="0.01" max="100" step="0.01" placeholder="0.00"/></div><div class="fg fg-full"><label class="fl">Name</label><input class="inp" id="add-name" placeholder="Legal name or full name…"/></div></div><div class="sh-add-actions"><button class="btn btn-ghost btn-sm" id="add-cancel">Cancel</button><button class="btn btn-primary btn-sm" id="add-confirm">Add Shareholder</button></div></div></div></div></div>`;
   }
 
   /* ── KYC: Collect persons requiring KYC ────────── */
@@ -1015,7 +1017,7 @@
 
     const title = isRoot ? 'KYC — Controllers, UBOs & Significant Shareholders' : 'KYC — UBOs & Significant Shareholders';
 
-    return `<div class="step fade-in"><div class="step-header"><div class="step-num ${numCls}">${stepIdx}</div><span class="step-title">Step ${stepIdx} · <span class="step-title-main">${title}</span></span><div class="step-line"></div><span class="step-badge step-badge--count">${completedCount}/${persons.length} verified</span></div><div class="step-body"><div class="kyc-section">${cardsHtml}</div></div></div>`;
+    return `<div class="step"><div class="step-header"><div class="step-num ${numCls}">${stepIdx}</div><span class="step-title">Step ${stepIdx} · <span class="step-title-main">${title}</span></span><div class="step-line"></div><span class="step-badge step-badge--count">${completedCount}/${persons.length} verified</span></div><div class="step-body"><div class="kyc-section">${cardsHtml}</div></div></div>`;
   }
 
   function wireKycEvents(n) {
@@ -1111,7 +1113,7 @@
   }
 
   function renderDisclaimerBar(entityName) {
-    return `<div class="disclaimer fade-in"><div class="disc-icon">⚑</div><div class="disc-body"><div class="disc-title">Review before confirming</div><div class="disc-text">Verify accuracy and completeness of all information for <strong>${esc(entityName)}</strong>. AI-extracted data should be carefully reviewed — you are responsible for confirming all details are correct.</div></div></div>`;
+    return `<div class="disclaimer"><div class="disc-icon">⚑</div><div class="disc-body"><div class="disc-title">Review before confirming</div><div class="disc-text">Verify accuracy and completeness of all information for <strong>${esc(entityName)}</strong>. AI-extracted data should be carefully reviewed — you are responsible for confirming all details are correct.</div></div></div>`;
   }
 
   /* ── Wire events ───────────────────────────────── */
@@ -1247,7 +1249,7 @@
           descEl.textContent = elapsed + 's elapsed · ' + stepDesc;
         }
         // Update progress ring
-        const pctFill = Math.min(95, Math.round((elapsed / 60) * 100));
+        const pctFill = Math.min(95, Math.round((elapsed / 120) * 100));
         const circumference = 2 * Math.PI * 15;
         const dashOffset = circumference - (pctFill / 100) * circumference;
         const ringFill = document.querySelector('.llm-progress-ring-fill');
@@ -1506,6 +1508,22 @@ ${ocrText.substring(0, 15000)}`;
       throw new Error('Step 1 (row extraction) failed: ' + err.message);
     }
 
+    // Validate Step 1 has rawRows
+    if (!step1Result || !step1Result.rawRows || step1Result.rawRows.length === 0) {
+      // Fall back: return entity details without shareholders
+      return {
+        legalName: step1Result?.legalName || '',
+        tradeName: step1Result?.tradeName || '',
+        regNumber: step1Result?.regNumber || '',
+        jurisdiction: step1Result?.jurisdiction || '',
+        incorporationDate: step1Result?.incorporationDate || '',
+        entityType: step1Result?.entityType || '',
+        address: step1Result?.address || '',
+        controllers: step1Result?.controllers || '',
+        shareholders: []
+      };
+    }
+
     // STEP 2: Merge, calculate percentages, produce final output
     const step2System = `You are an expert KYB document analyst. You will receive pre-extracted raw shareholder data from Step 1 and must produce the final structured output with correct ownership percentages.
 
@@ -1591,13 +1609,24 @@ INSTRUCTIONS:
       throw new Error('Step 2 (percentage calculation) failed: ' + err.message);
     }
 
+    // Ensure shareholders array exists
+    if (!step2Result.shareholders) step2Result.shareholders = [];
+    // Copy entity details from step1 if step2 missed them
+    if (!step2Result.legalName && step1Result.legalName) step2Result.legalName = step1Result.legalName;
+    if (!step2Result.regNumber && step1Result.regNumber) step2Result.regNumber = step1Result.regNumber;
+    if (!step2Result.jurisdiction && step1Result.jurisdiction) step2Result.jurisdiction = step1Result.jurisdiction;
+    if (!step2Result.incorporationDate && step1Result.incorporationDate) step2Result.incorporationDate = step1Result.incorporationDate;
+    if (!step2Result.entityType && step1Result.entityType) step2Result.entityType = step1Result.entityType;
+    if (!step2Result.address && step1Result.address) step2Result.address = step1Result.address;
+    if (!step2Result.controllers && step1Result.controllers) step2Result.controllers = step1Result.controllers;
+
     return step2Result;
   }
 
   llmExtractAnthropic = async function(systemPrompt, userPrompt) {
     try {
       currentAbortController = new AbortController();
-      const timeoutId = setTimeout(() => currentAbortController?.abort(), 60000);
+      const timeoutId = setTimeout(() => currentAbortController?.abort(), 120000);
       const headers = {"Content-Type":"application/json"};
       if (apiConfig.apiKey) {
         headers["x-api-key"] = apiConfig.apiKey;
@@ -1608,7 +1637,7 @@ INSTRUCTIONS:
         method:"POST",
         headers,
         signal: currentAbortController.signal,
-        body: JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:8192,system:systemPrompt,messages:[{role:"user",content:userPrompt}]})
+        body: JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:16384,system:systemPrompt,messages:[{role:"user",content:userPrompt}]})
       });
       clearTimeout(timeoutId);
       currentAbortController = null;
@@ -1618,7 +1647,7 @@ INSTRUCTIONS:
       return parseJsonResponse(text);
     } catch(err) {
       currentAbortController = null;
-      if(err.name === 'AbortError') throw new Error('Request timed out after 60 seconds. Try again or fill in details manually.');
+      if(err.name === 'AbortError') throw new Error('Request timed out after 120 seconds. Try again or fill in details manually.');
       throw new Error('Anthropic API failed: '+err.message);
     }
   }
@@ -1626,12 +1655,12 @@ INSTRUCTIONS:
   llmExtractOpenAI = async function(systemPrompt, userPrompt) {
     try {
       currentAbortController = new AbortController();
-      const timeoutId = setTimeout(() => currentAbortController?.abort(), 60000);
+      const timeoutId = setTimeout(() => currentAbortController?.abort(), 120000);
       const response = await fetch("https://api.openai.com/v1/chat/completions", {
         method:"POST",
         headers:{"Content-Type":"application/json","Authorization":"Bearer "+apiConfig.apiKey},
         signal: currentAbortController.signal,
-        body: JSON.stringify({model:"gpt-4o-mini",max_tokens:8192,messages:[{role:"system",content:systemPrompt},{role:"user",content:userPrompt}]})
+        body: JSON.stringify({model:"gpt-4o",messages:[{role:"system",content:systemPrompt},{role:"user",content:userPrompt}]})
       });
       clearTimeout(timeoutId);
       currentAbortController = null;
@@ -1641,7 +1670,7 @@ INSTRUCTIONS:
       return parseJsonResponse(text);
     } catch(err) {
       currentAbortController = null;
-      if(err.name === 'AbortError') throw new Error('Request timed out after 60 seconds. Try again or fill in details manually.');
+      if(err.name === 'AbortError') throw new Error('Request timed out after 120 seconds. Try again or fill in details manually.');
       throw new Error('OpenAI API failed: '+err.message);
     }
   }
