@@ -632,6 +632,7 @@
 
   function getName(n) { return n.data?.legalName || n.data?.fullName || n.label || n.id; }
 
+  let lastRenderedLayerId = null;
   function render() { renderSidebar(); renderPage(); updateStats(); updateProgress(); updateNextAction(); }
 
   function renderSidebar() { sbTree.innerHTML = ''; renderSidebarNode('root', 0); }
@@ -694,7 +695,7 @@
     html+=renderDisclaimerBar(displayName);
     html+='<div class="page-bottom-spacer"></div>';
     mainContent.innerHTML=html;
-    mainContent.scrollTop=0;
+    if(activeLayerId !== lastRenderedLayerId) { mainContent.scrollTop=0; lastRenderedLayerId=activeLayerId; }
     wireFormEvents(n);
     wireDocEvents(n);
     wireExtractionEvents(n);
@@ -1228,14 +1229,29 @@
       render();
     });
 
-    // If LLM is active, start a timer to update the elapsed display
+    // If LLM is active, start a timer to update ONLY the elapsed display (no full re-render)
     const es = extractState[n.id];
     if(es && es.status === 'llm' && es.llmStartTime) {
       if(llmTimerInterval) clearInterval(llmTimerInterval);
+      const nodeIdForTimer = n.id;
       llmTimerInterval = setInterval(() => {
-        // Only re-render the extraction step body to update elapsed time
-        if(extractState[n.id]?.status === 'llm') render();
-        else { clearInterval(llmTimerInterval); llmTimerInterval = null; }
+        const curEs = extractState[nodeIdForTimer];
+        if(!curEs || curEs.status !== 'llm') { clearInterval(llmTimerInterval); llmTimerInterval = null; return; }
+        const elapsed = Math.round((Date.now() - curEs.llmStartTime) / 1000);
+        // Update elapsed text
+        const descEl = document.querySelector('.extract-stage.active .extract-stage-desc');
+        if(descEl) {
+          const stepDesc = curEs.llmTotalSteps > 1
+            ? (curEs.llmStep === 1 ? 'Extracting raw shareholder rows from OCR text' : 'Merging shareholders & calculating ownership percentages')
+            : 'Extracting structured fields from OCR text';
+          descEl.textContent = elapsed + 's elapsed · ' + stepDesc;
+        }
+        // Update progress ring
+        const pctFill = Math.min(95, Math.round((elapsed / 60) * 100));
+        const circumference = 2 * Math.PI * 15;
+        const dashOffset = circumference - (pctFill / 100) * circumference;
+        const ringFill = document.querySelector('.llm-progress-ring-fill');
+        if(ringFill) ringFill.setAttribute('stroke-dashoffset', dashOffset.toFixed(1));
       }, 1000);
     }
   }
@@ -1592,7 +1608,7 @@ INSTRUCTIONS:
         method:"POST",
         headers,
         signal: currentAbortController.signal,
-        body: JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:4096,system:systemPrompt,messages:[{role:"user",content:userPrompt}]})
+        body: JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:8192,system:systemPrompt,messages:[{role:"user",content:userPrompt}]})
       });
       clearTimeout(timeoutId);
       currentAbortController = null;
@@ -1615,7 +1631,7 @@ INSTRUCTIONS:
         method:"POST",
         headers:{"Content-Type":"application/json","Authorization":"Bearer "+apiConfig.apiKey},
         signal: currentAbortController.signal,
-        body: JSON.stringify({model:"gpt-4o-mini",max_tokens:4096,messages:[{role:"system",content:systemPrompt},{role:"user",content:userPrompt}]})
+        body: JSON.stringify({model:"gpt-4o-mini",max_tokens:8192,messages:[{role:"system",content:systemPrompt},{role:"user",content:userPrompt}]})
       });
       clearTimeout(timeoutId);
       currentAbortController = null;
